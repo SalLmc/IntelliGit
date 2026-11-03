@@ -196,7 +196,15 @@ export function CommitList({
     );
     const selectionAnchorHashRef = useRef<string | null>(selectedHash);
     const requestedPrimaryHashRef = useRef<string | null>(null);
-    const [scrollTop, setScrollTop] = useState(0);
+    const lastUserClickedRef = useRef<string | null>(null);
+    const [scrollRow, setScrollRow] = useState(0);
+    const scrollRowRef = useRef(0);
+    const publishScrollRow = useCallback((pixel: number) => {
+        const row = Math.floor(pixel / ROW_HEIGHT);
+        if (row === scrollRowRef.current) return;
+        scrollRowRef.current = row;
+        setScrollRow(row);
+    }, []);
     const [viewportHeight, setViewportHeight] = useState(0);
     const [viewportWidth, setViewportWidth] = useState(0);
     const isLoadingMoreRef = useRef(false);
@@ -284,13 +292,36 @@ export function CommitList({
         setSelectedHashes(selectedHash ? new Set([selectedHash]) : new Set());
     }, [selectedHash]);
 
+    useLayoutEffect(() => {
+        const viewport = viewportRef.current;
+        if (!selectedHash || !viewport || commits.length === 0) return;
+        if (lastUserClickedRef.current === selectedHash) {
+            lastUserClickedRef.current = null;
+            return;
+        }
+
+        const idx = commits.findIndex((commit) => commit.hash === selectedHash);
+        if (idx < 0) return;
+
+        const rowTop = idx * ROW_HEIGHT;
+        const rowBottom = (idx + 1) * ROW_HEIGHT;
+        const curScroll = viewport.scrollTop;
+        const viewHeight = viewport.clientHeight || 500;
+        if (rowTop < curScroll || rowBottom > curScroll + viewHeight) {
+            const targetScroll = Math.max(0, rowTop - Math.floor((viewHeight - ROW_HEIGHT) / 2));
+            viewport.scrollTop = targetScroll;
+            publishScrollRow(targetScroll);
+        }
+    }, [selectedHash, commits, viewportHeight, publishScrollRow]);
+
     /** Publishes one primary detail identity without replacing local group membership. */
     const publishPrimaryHash = useCallback(
         (hash: string) => {
+            if (hash !== selectedHash) lastUserClickedRef.current = hash;
             requestedPrimaryHashRef.current = hash;
             onSelectCommit(hash);
         },
-        [onSelectCommit],
+        [onSelectCommit, selectedHash],
     );
 
     /** Applies plain, toggle, or anchored-range selection to the displayed commit order. */
@@ -394,7 +425,7 @@ export function CommitList({
     const handleScroll = useCallback(
         (event: React.UIEvent<HTMLDivElement>) => {
             const el = event.currentTarget;
-            setScrollTop(el.scrollTop);
+            publishScrollRow(el.scrollTop);
             if (
                 hasMore &&
                 !isLoadingMoreRef.current &&
@@ -408,7 +439,7 @@ export function CommitList({
                     });
             }
         },
-        [hasMore, onLoadMore],
+        [hasMore, onLoadMore, publishScrollRow],
     );
 
     const visibleRange = useMemo(() => {
@@ -416,13 +447,11 @@ export function CommitList({
             return { start: 0, end: 0 };
         }
         const overscan = 8;
-        const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - overscan);
-        const end = Math.min(
-            commits.length,
-            Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + overscan,
-        );
+        const viewportRows = viewportHeight === 0 ? 0 : Math.ceil(viewportHeight / ROW_HEIGHT);
+        const start = Math.max(0, scrollRow - overscan);
+        const end = Math.min(commits.length, scrollRow + viewportRows + overscan);
         return { start, end };
-    }, [commits.length, scrollTop, viewportHeight]);
+    }, [commits.length, scrollRow, viewportHeight]);
 
     const renderedCommits = useMemo(
         () => commits.slice(visibleRange.start, visibleRange.end),
@@ -431,12 +460,12 @@ export function CommitList({
 
     const requestRange = useMemo(() => {
         if (commits.length === 0) return { start: 0, end: 0 };
-        const effectiveHeight = Math.max(ROW_HEIGHT, viewportHeight);
+        const viewportRows = Math.ceil(Math.max(ROW_HEIGHT, viewportHeight) / ROW_HEIGHT);
         return {
-            start: Math.max(0, Math.floor(scrollTop / ROW_HEIGHT)),
-            end: Math.min(commits.length, Math.ceil((scrollTop + effectiveHeight) / ROW_HEIGHT)),
+            start: scrollRow,
+            end: Math.min(commits.length, scrollRow + viewportRows),
         };
-    }, [commits.length, scrollTop, viewportHeight]);
+    }, [commits.length, scrollRow, viewportHeight]);
 
     const showChecksColumn =
         showAuthorDate && Boolean(onRequestCommitChecks && onOpenCommitCheckUrl);

@@ -1,11 +1,11 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { WorkingFile } from "../../../../types";
 import type { TreeEntry, TreeFolder } from "../../shared/fileTree";
 import {
     FileTreeRows,
     TreeFileRow,
     TreeFolderRow,
     type FileTreeRowsProps,
+    type TreeRowFile,
 } from "../../shared/components/FileTreeRows";
 import { JETBRAINS_UI } from "../../shared/tokens";
 
@@ -13,19 +13,19 @@ const ROW_HEIGHT = JETBRAINS_UI.size.treeRowHeight;
 const OVERSCAN = 10;
 export const VIRTUAL_THRESHOLD = 200;
 
-interface VisibleRow {
-    entry: TreeEntry<WorkingFile>;
+interface VisibleRow<F extends TreeRowFile> {
+    entry: TreeEntry<F>;
     depth: number;
 }
 
 /** Flattens only expanded rows while retaining the existing tree order and indentation. */
-export function visibleCommitRows(
-    entries: readonly TreeEntry<WorkingFile>[],
+export function visibleCommitRows<F extends TreeRowFile>(
+    entries: readonly TreeEntry<F>[],
     expanded: (path: string) => boolean,
     depth = 0,
-): VisibleRow[] {
-    const rows: VisibleRow[] = [];
-    const append = (children: readonly TreeEntry<WorkingFile>[], level: number): void => {
+): VisibleRow<F>[] {
+    const rows: VisibleRow<F>[] = [];
+    const append = (children: readonly TreeEntry<F>[], level: number): void => {
         for (const entry of children) {
             rows.push({ entry, depth: level });
             if (entry.type === "folder" && expanded(entry.path)) append(entry.children, level + 1);
@@ -45,8 +45,8 @@ function scrollParent(element: HTMLElement): HTMLElement {
     return element.parentElement ?? element;
 }
 
-function fileCount(folder: TreeFolder<WorkingFile>): number {
-    const descendants = (folder as TreeFolder<WorkingFile> & { descendantFiles?: WorkingFile[] })
+function fileCount<F extends TreeRowFile>(folder: TreeFolder<F>): number {
+    const descendants = (folder as TreeFolder<F> & { descendantFiles?: readonly unknown[] })
         .descendantFiles;
     if (descendants) return descendants.length;
     return folder.children.reduce(
@@ -59,10 +59,10 @@ function fileCount(folder: TreeFolder<WorkingFile>): number {
  * Bounds large commit trees; small trees retain the original DOM and pixel layout unless
  * `virtualize` says the panel around them is large.
  */
-export function VirtualFileTreeRows({
+export function VirtualFileTreeRows<F extends TreeRowFile>({
     virtualize = false,
     ...props
-}: FileTreeRowsProps<WorkingFile> & { virtualize?: boolean }): React.ReactElement {
+}: FileTreeRowsProps<F> & { virtualize?: boolean }): React.ReactElement {
     const root = useRef<HTMLDivElement>(null);
     const rows = useMemo(
         () => visibleCommitRows(props.entries, props.isDirectoryExpanded, props.depth),
@@ -70,6 +70,39 @@ export function VirtualFileTreeRows({
     );
     const [windowRange, setWindowRange] = useState({ start: 0, end: 40 });
     const virtual = virtualize || rows.length > VIRTUAL_THRESHOLD;
+    const fileWiringSeen = useRef(props.fileWiring);
+    const folderWiringSeen = useRef(props.folderWiring);
+    const fileWiringCache = useRef(
+        new WeakMap<object, { depth: number; wiring: ReturnType<typeof props.fileWiring> }>(),
+    );
+    const folderWiringCache = useRef(
+        new Map<string, ReturnType<NonNullable<typeof props.folderWiring>>>(),
+    );
+    if (fileWiringSeen.current !== props.fileWiring) {
+        fileWiringSeen.current = props.fileWiring;
+        fileWiringCache.current = new WeakMap();
+    }
+    if (folderWiringSeen.current !== props.folderWiring) {
+        folderWiringSeen.current = props.folderWiring;
+        folderWiringCache.current = new Map();
+    }
+    const fileWiringFor = (file: F, depth: number): ReturnType<typeof props.fileWiring> => {
+        const cached = fileWiringCache.current.get(file);
+        if (cached && cached.depth === depth) return cached.wiring;
+        const wiring = props.fileWiring(file, depth);
+        fileWiringCache.current.set(file, { depth, wiring });
+        return wiring;
+    };
+    const folderWiringFor = (
+        folder: TreeFolder<F>,
+    ): ReturnType<NonNullable<typeof props.folderWiring>> | undefined => {
+        if (!props.folderWiring) return undefined;
+        const cached = folderWiringCache.current.get(folder.path);
+        if (cached) return cached;
+        const wiring = props.folderWiring(folder);
+        folderWiringCache.current.set(folder.path, wiring);
+        return wiring;
+    };
 
     useLayoutEffect(() => {
         const element = root.current;
@@ -196,7 +229,7 @@ export function VirtualFileTreeRows({
                                 }
                                 indentMetrics={props.indentMetrics}
                                 rowVariant={props.rowVariant}
-                                wiring={props.fileWiring(entry.file, depth)}
+                                wiring={fileWiringFor(entry.file, depth)}
                             />
                         ) : (
                             <TreeFolderRow
@@ -215,7 +248,7 @@ export function VirtualFileTreeRows({
                                 indentMetrics={props.indentMetrics}
                                 rowVariant={props.rowVariant}
                                 onToggleDirectory={props.onToggleDirectory}
-                                wiring={props.folderWiring?.(entry)}
+                                wiring={folderWiringFor(entry)}
                             />
                         )}
                     </div>

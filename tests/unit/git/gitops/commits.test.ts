@@ -210,6 +210,77 @@ describe("GitOps", () => {
             const call = (executor.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
             expect(call).toContain("--skip=200");
         });
+
+        it("pins hash-prefix commits ahead of message matches", async () => {
+            const hashCommit = makeCommitRecord(
+                "abc123full",
+                "abc123",
+                "unrelated subject",
+                "John",
+                "john@test.com",
+                "2024-01-01T00:00:00Z",
+                "",
+                "",
+            );
+            const messageCommit = makeCommitRecord(
+                "def456full",
+                "def456",
+                "mention abc123 in the subject",
+                "Jane",
+                "jane@test.com",
+                "2024-01-02T00:00:00Z",
+                "",
+                "",
+            );
+            const executor = {
+                run: vi.fn(async (args: string[]) => {
+                    if (args[0] === "rev-parse") return "abc123full\n";
+                    if (args.includes("--no-walk")) return hashCommit;
+                    if (args[0] === "log") return messageCommit;
+                    return "";
+                }),
+            } as unknown as GitExecutor;
+            const ops = new GitOps(executor);
+
+            const commits = await ops.getLog(100, undefined, "abc123");
+
+            expect(commits.map((commit) => commit.hash)).toEqual(["abc123full", "def456full"]);
+            expect(executor.run).toHaveBeenCalledWith(["rev-parse", "--disambiguate=abc123"]);
+        });
+
+        it("does not resolve hash prefixes while paging", async () => {
+            const executor = createMockExecutor({ log: "" });
+            const ops = new GitOps(executor);
+
+            await ops.getLog(100, undefined, "abc123", 50);
+
+            expect(executor.run).toHaveBeenCalledTimes(1);
+            const call = (executor.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+            expect(call).toContain("--skip=50");
+            expect(call).toContain("--grep=abc123");
+            expect(call).not.toContain("--disambiguate=abc123");
+        });
+
+        it("keeps the default page size while a text filter is active", async () => {
+            const executor = createMockExecutor({});
+            const ops = new GitOps(executor);
+
+            await expect(ops.firstPageCount(500, "abc123full", undefined, "fix")).resolves.toBe(
+                500,
+            );
+            expect(executor.run).not.toHaveBeenCalled();
+        });
+
+        it("stretches the first page so a deep selected commit stays loaded", async () => {
+            const lines = Array.from({ length: 800 }, (_, index) =>
+                index === 699 ? "abc123full" : `deadbeef${index}`,
+            );
+            const executor = createMockExecutor({ "rev-list": `${lines.join("\n")}\n` });
+            const ops = new GitOps(executor);
+
+            await expect(ops.firstPageCount(500, "abc123full")).resolves.toBe(750);
+            expect(executor.run).toHaveBeenCalledWith(["rev-list", "-n", "4000", "--all"]);
+        });
     });
 
     describe("getRecentCommitSubjects", () => {
@@ -273,6 +344,32 @@ describe("GitOps", () => {
             expect(detail.files[1].path).toBe("src/bar.ts");
             expect(detail.files[1].status).toBe("A");
             expect(detail.files[1].additions).toBe(5);
+        });
+
+        it("replaces direct decorations with every containing branch and keeps tags", async () => {
+            const showOutput = [
+                "abc123full",
+                "abc123",
+                "Fix bug",
+                "Body text",
+                "John",
+                "john@test.com",
+                "2024-01-01T00:00:00Z",
+                "parent1",
+                "tag: v1.0.0",
+            ].join(FIELD_SEP);
+            const executor = {
+                run: vi.fn(async (args: string[]) => {
+                    if (args[0] === "show") return showOutput;
+                    if (args[0] === "branch") return "main\nfeature\norigin/main\norigin/HEAD\n";
+                    return "";
+                }),
+            } as unknown as GitExecutor;
+            const ops = new GitOps(executor);
+
+            const detail = await ops.getCommitDetail("abc123full");
+
+            expect(detail.refs).toEqual(["main", "feature", "origin/main", "tag: v1.0.0"]);
         });
 
         it("applies numstat for renamed commit files to the destination path", async () => {

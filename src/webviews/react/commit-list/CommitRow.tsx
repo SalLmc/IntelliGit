@@ -285,7 +285,7 @@ export function CommitMessageCell({
 
     const showTooltip = (event: React.PointerEvent<HTMLElement>): void => {
         const { hoverDelay, tooltipsEnabled } = getSettings();
-        if (!tooltipsEnabled) return;
+        if (!tooltipsEnabled || tooltipPos) return;
 
         const rect = event.currentTarget.getBoundingClientRect();
         const baseX = event.clientX > 0 ? event.clientX : rect.left + rect.width / 2;
@@ -299,14 +299,10 @@ export function CommitMessageCell({
             placement,
         };
 
-        if (tooltipPos) {
+        clearTooltipTimer();
+        timerRef.current = setTimeout(() => {
             setTooltipPos(newPos);
-        } else {
-            clearTooltipTimer();
-            timerRef.current = setTimeout(() => {
-                setTooltipPos(newPos);
-            }, hoverDelay);
-        }
+        }, hoverDelay);
     };
 
     const hideTooltip = (): void => {

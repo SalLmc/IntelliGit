@@ -8,12 +8,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DiffViewerData } from "../../protocol/diffViewerTypes";
-import {
-    highlightDocument,
-    initShiki,
-    isShikiReady,
-    langForPath,
-} from "../diff-core/shikiHighlighter";
+import { initShiki, isShikiReady, langForPath } from "../diff-core/shikiHighlighter";
+import { useDocumentTokens } from "../diff-core/useDocumentTokens";
 import {
     buildVerticalLayout,
     type DiffVerticalLayout,
@@ -152,31 +148,28 @@ export function useDiffViewerModel(
         }),
         [data?.languageId, data?.path, shikiReady, shikiTheme],
     );
-    const syntaxHighlightPaneStates = useMemo<Record<DiffPane, SyntaxHighlightState>>(() => {
-        if (!syntaxHighlightState.ready || !syntaxHighlightState.lang) {
-            return { left: syntaxHighlightState, right: syntaxHighlightState };
-        }
-        return {
-            left: {
-                ...syntaxHighlightState,
-                documentTokens: highlightDocument(
-                    segments.flatMap((segment) => segment.left),
-                    syntaxHighlightState.lang,
-                    syntaxHighlightState.theme,
-                    data?.left?.eol === "crlf" ? "\r\n" : "\n",
-                ),
-            },
-            right: {
-                ...syntaxHighlightState,
-                documentTokens: highlightDocument(
-                    segments.flatMap((segment) => segment.right),
-                    syntaxHighlightState.lang,
-                    syntaxHighlightState.theme,
-                    data?.right?.eol === "crlf" ? "\r\n" : "\n",
-                ),
-            },
-        };
-    }, [data?.left?.eol, data?.right?.eol, segments, syntaxHighlightState]);
+    const leftDocumentLines = useMemo(
+        () => segments.flatMap((segment) => segment.left),
+        [segments],
+    );
+    const rightDocumentLines = useMemo(
+        () => segments.flatMap((segment) => segment.right),
+        [segments],
+    );
+    const leftHighlight = useDocumentTokens(
+        leftDocumentLines,
+        syntaxHighlightState,
+        data?.left?.eol === "crlf" ? "\r\n" : "\n",
+    );
+    const rightHighlight = useDocumentTokens(
+        rightDocumentLines,
+        syntaxHighlightState,
+        data?.right?.eol === "crlf" ? "\r\n" : "\n",
+    );
+    const syntaxHighlightPaneStates: Record<DiffPane, SyntaxHighlightState> = {
+        left: leftHighlight,
+        right: rightHighlight,
+    };
 
     const renderedSegments = useMemo(
         () => buildRenderedSegments(segments, renderedSegmentCache),

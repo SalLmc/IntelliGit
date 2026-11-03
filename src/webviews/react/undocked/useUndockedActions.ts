@@ -5,6 +5,7 @@
 /* eslint-disable react-hooks/exhaustive-deps -- Dependency arrays intentionally match pre-extraction callbacks. */
 
 import { useCallback } from "react";
+import { useDebouncedFilterPublish } from "../commit-graph/useDebouncedFilterPublish";
 import type React from "react";
 import type { Branch } from "../../../types";
 import type { BranchAction, CommitAction, WorktreeAction } from "../../protocol/commitGraphTypes";
@@ -107,12 +108,13 @@ export function useUndockedActions(params: UseUndockedActionsParams): UndockedAc
         // react-doctor-disable-next-line react-doctor/exhaustive-deps
     }, []);
 
+    const publishFilterText = useDebouncedFilterPublish((text: string) => {
+        loadingMore.current = false;
+        vscode.postMessage({ type: "filterText", text });
+    });
     const handleFilterText = useCallback((text: string) => {
         graphDispatch({ type: "setFilterText", text });
-        if (text.length >= 3 || text.length === 0) {
-            loadingMore.current = false;
-            vscode.postMessage({ type: "filterText", text });
-        }
+        publishFilterText(text);
         // react-doctor-disable-next-line react-doctor/exhaustive-deps
     }, []);
 

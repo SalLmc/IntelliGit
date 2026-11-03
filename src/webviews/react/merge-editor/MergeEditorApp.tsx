@@ -61,13 +61,8 @@ import {
     type SegmentPaneLines,
 } from "../diff-core/mergeScrollLayout";
 import { buildLineNumberValues } from "../diff-core/lineNumbers";
-import {
-    detectTheme,
-    highlightDocument,
-    initShiki,
-    isShikiReady,
-    langForPath,
-} from "../diff-core/shikiHighlighter";
+import { detectTheme, initShiki, isShikiReady, langForPath } from "../diff-core/shikiHighlighter";
+import { useDocumentTokens } from "../diff-core/useDocumentTokens";
 import { SyntaxHighlightProvider } from "../diff-core/syntaxHighlightContext";
 import {
     applyPaneOffsets,
@@ -213,48 +208,21 @@ function LegacyApp({ data }: { data: MergeEditorData }) {
         return lines;
     }, [segments, state.edits, state.resolutions]);
     const documentEol = state.data?.eol ?? "\n";
-    const leftSyntaxHighlightState = useMemo(() => {
-        if (!syntaxHighlightState.ready || !syntaxHighlightState.lang) {
-            return syntaxHighlightState;
-        }
-        return {
-            ...syntaxHighlightState,
-            documentTokens: highlightDocument(
-                sidePaneDocumentLines.left,
-                syntaxHighlightState.lang,
-                syntaxHighlightState.theme,
-                documentEol,
-            ),
-        };
-    }, [documentEol, sidePaneDocumentLines.left, syntaxHighlightState]);
-    const middleSyntaxHighlightState = useMemo(() => {
-        if (!syntaxHighlightState.ready || !syntaxHighlightState.lang) {
-            return syntaxHighlightState;
-        }
-        return {
-            ...syntaxHighlightState,
-            documentTokens: highlightDocument(
-                middlePaneDocumentLines,
-                syntaxHighlightState.lang,
-                syntaxHighlightState.theme,
-                documentEol,
-            ),
-        };
-    }, [documentEol, middlePaneDocumentLines, syntaxHighlightState]);
-    const rightSyntaxHighlightState = useMemo(() => {
-        if (!syntaxHighlightState.ready || !syntaxHighlightState.lang) {
-            return syntaxHighlightState;
-        }
-        return {
-            ...syntaxHighlightState,
-            documentTokens: highlightDocument(
-                sidePaneDocumentLines.right,
-                syntaxHighlightState.lang,
-                syntaxHighlightState.theme,
-                documentEol,
-            ),
-        };
-    }, [documentEol, sidePaneDocumentLines.right, syntaxHighlightState]);
+    const leftSyntaxHighlightState = useDocumentTokens(
+        sidePaneDocumentLines.left,
+        syntaxHighlightState,
+        documentEol,
+    );
+    const middleSyntaxHighlightState = useDocumentTokens(
+        middlePaneDocumentLines,
+        syntaxHighlightState,
+        documentEol,
+    );
+    const rightSyntaxHighlightState = useDocumentTokens(
+        sidePaneDocumentLines.right,
+        syntaxHighlightState,
+        documentEol,
+    );
     const syntaxHighlightPaneStates = {
         left: leftSyntaxHighlightState,
         middle: middleSyntaxHighlightState,

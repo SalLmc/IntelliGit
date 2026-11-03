@@ -78,6 +78,7 @@ media/screenshots/**
 docs/**
 DESIGN.md
 PRODUCT.md
+backgroud.md
 
 # Local tool output. All three are gitignored, which is NOT enough -- vsce
 # packages the working directory, not the git index, so an ignored directory

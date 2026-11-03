@@ -767,6 +767,7 @@ function makeGitOpsMock(repositoryRoot = "/repo") {
             derived.getStatus.mockImplementation(async () => gitStatusByRoot.get(root) ?? []);
             return derived;
         }),
+        firstPageCount: vi.fn(async (pageSize: number) => pageSize),
         getLog: vi.fn(async () => [
             {
                 hash: "abc1234",

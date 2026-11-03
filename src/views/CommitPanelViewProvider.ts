@@ -1640,13 +1640,17 @@ export class CommitPanelViewProvider implements vscode.WebviewViewProvider {
             this.postToWebview({ type: "setSelectedBranch", branch: null });
         }
         try {
+            const branch = runtime.currentBranch ?? undefined;
+            const filter = runtime.filterText || undefined;
+            const initCount = await runtime.gitOps.firstPageCount(
+                this.PAGE_SIZE,
+                this.selectedCommitDetail?.hash,
+                branch,
+                filter,
+            );
+            if (requestId !== runtime.requestSeq) return;
             const [commits, unpushedHashes] = await Promise.all([
-                runtime.gitOps.getLog(
-                    this.PAGE_SIZE,
-                    runtime.currentBranch ?? undefined,
-                    runtime.filterText || undefined,
-                    0,
-                ),
+                runtime.gitOps.getLog(initCount, branch, filter, 0),
                 runtime.gitOps.getUnpushedCommitHashes(),
             ]);
             if (requestId === runtime.requestSeq) {
@@ -1654,7 +1658,7 @@ export class CommitPanelViewProvider implements vscode.WebviewViewProvider {
                 this.postToWebview({
                     type: "loadCommits",
                     commits,
-                    hasMore: commits.length >= this.PAGE_SIZE,
+                    hasMore: commits.length >= initCount,
                     append: false,
                     unpushedHashes,
                 });

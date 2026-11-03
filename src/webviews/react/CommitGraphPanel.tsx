@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { BranchColumn } from "./BranchColumn";
 import { CommitList } from "./CommitList";
+import { useDebouncedFilterPublish } from "./commit-graph/useDebouncedFilterPublish";
 import type {
     Branch,
     Commit,
@@ -422,15 +423,16 @@ export function CommitGraphPanel({
         [vscode],
     );
 
+    const publishFilterText = useDebouncedFilterPublish((text: string) => {
+        loadingMore.current = false;
+        vscode.postMessage({ type: "filterText", text });
+    });
     const handleFilterText = useCallback(
         (text: string) => {
             dispatch({ type: "setFilterText", text });
-            if (text.length >= 3 || text.length === 0) {
-                loadingMore.current = false;
-                vscode.postMessage({ type: "filterText", text });
-            }
+            publishFilterText(text);
         },
-        [vscode],
+        [publishFilterText],
     );
 
     const handleLoadMore = useCallback(() => {

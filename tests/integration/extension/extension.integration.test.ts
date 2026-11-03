@@ -274,6 +274,7 @@ const gitOpsState = {
         refs: [],
         files: [],
     })),
+    firstPageCount: vi.fn(async (pageSize: number) => pageSize),
     getUnpushedCommitHashes: vi.fn(async () => ["a1b2c3d4", "feed1234", "deadbee"]),
     getFileContentAtRef: vi.fn(async (_filePath: string, ref: string) => `content:${ref}`),
     rollbackFiles: vi.fn(async () => undefined),

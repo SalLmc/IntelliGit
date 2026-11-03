@@ -1725,15 +1725,19 @@ export class UndockedViewProvider {
             this.postToWebview({ type: "setSelectedBranch", branch: null });
         }
         try {
+            const branch = this.currentBranch ?? undefined;
+            const filter = this.filterText || undefined;
+            const initCount = await this.gitOps.firstPageCount(
+                this.PAGE_SIZE,
+                this.selectedCommitDetail?.hash,
+                branch,
+                filter,
+            );
+            if (requestId !== this.requestSeq || !shouldContinue()) return;
             // Stale-request guard must run after both async reads settle.
             // react-doctor-disable-next-line react-doctor/async-defer-await
             const [commits, unpushedHashes] = await Promise.all([
-                this.gitOps.getLog(
-                    this.PAGE_SIZE,
-                    this.currentBranch ?? undefined,
-                    this.filterText || undefined,
-                    0,
-                ),
+                this.gitOps.getLog(initCount, branch, filter, 0),
                 this.gitOps.getUnpushedCommitHashes(),
             ]);
             if (requestId !== this.requestSeq || !shouldContinue()) return;
@@ -1742,7 +1746,7 @@ export class UndockedViewProvider {
             this.postToWebview({
                 type: "loadCommits",
                 commits,
-                hasMore: commits.length >= this.PAGE_SIZE,
+                hasMore: commits.length >= initCount,
                 append: false,
                 unpushedHashes,
             });

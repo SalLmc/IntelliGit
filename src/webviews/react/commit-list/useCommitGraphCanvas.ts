@@ -37,14 +37,15 @@ export function useCommitGraphCanvas({ canvasRef, viewportRef, rows, graphWidth 
         }
 
         let raf = 0;
+        let drawnKey = "";
+        const readBackground = (): string =>
+            getComputedStyle(document.documentElement)
+                .getPropertyValue("--vscode-editor-background")
+                .trim() || JETBRAINS_UI.color.graphBackgroundFallback;
+        let background = readBackground();
         const draw = () => {
             raf = 0;
             const dpr = window.devicePixelRatio || 1;
-            // Read theme background on every draw so theme switches repaint correctly.
-            const bgColor =
-                getComputedStyle(document.documentElement)
-                    .getPropertyValue("--vscode-editor-background")
-                    .trim() || JETBRAINS_UI.color.graphBackgroundFallback;
             const scrollTop = viewport.scrollTop;
             const viewportHeight = viewport.clientHeight;
             const visibleStart = Math.floor(scrollTop / ROW_HEIGHT);
@@ -52,6 +53,9 @@ export function useCommitGraphCanvas({ canvasRef, viewportRef, rows, graphWidth 
             const drawStart = Math.max(0, visibleStart - OVERSCAN_ROWS);
             const drawEnd = Math.min(rows.length, visibleEnd + OVERSCAN_ROWS);
             const drawHeight = Math.max(1, (drawEnd - drawStart) * ROW_HEIGHT);
+            const key = `${drawStart}:${drawEnd}:${graphWidth}:${dpr}:${background}`;
+            if (key === drawnKey) return;
+            drawnKey = key;
 
             canvas.width = graphWidth * dpr;
             canvas.height = drawHeight * dpr;
@@ -118,7 +122,7 @@ export function useCommitGraphCanvas({ canvasRef, viewportRef, rows, graphWidth 
                 }
 
                 ctx.beginPath();
-                ctx.fillStyle = bgColor;
+                ctx.fillStyle = background;
                 ctx.arc(cx, cy, DOT_RADIUS + 1.5, 0, Math.PI * 2);
                 ctx.fill();
 
@@ -139,11 +143,18 @@ export function useCommitGraphCanvas({ canvasRef, viewportRef, rows, graphWidth 
             if (raf !== 0) return;
             raf = window.requestAnimationFrame(draw);
         };
+        const redrawForTheme = () => {
+            const next = readBackground();
+            if (next === background) return;
+            background = next;
+            drawnKey = "";
+            scheduleDraw();
+        };
 
         const observer = new ResizeObserver(scheduleDraw);
         observer.observe(viewport);
-        // Observe theme-related attribute changes and redraw with updated colors.
-        const themeObserver = new MutationObserver(scheduleDraw);
+        // Theme switches are the only time the lane backdrop color has to be read again.
+        const themeObserver = new MutationObserver(redrawForTheme);
         themeObserver.observe(document.documentElement, {
             attributes: true,
             attributeFilter: ["class", "style", "data-vscode-theme-id"],

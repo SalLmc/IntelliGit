@@ -670,8 +670,9 @@ export class GitOps {
     /**
      * Loads commit summaries from all refs or a validated branch, optionally using a literal grep filter.
      *
-     * Branch names are passed after `--end-of-options`; filter text uses fixed-string grep to avoid
-     * treating user input as a regular expression.
+     * A 3–64 character hex query also resolves commit-hash prefixes on the first page and pins those
+     * commits ahead of message matches. Branch names are passed after `--end-of-options`; filter text
+     * uses fixed-string grep to avoid treating user input as a regular expression.
      */
     async getLog(
         maxCount: number = 500,
@@ -679,6 +680,11 @@ export class GitOps {
         filterText?: string,
         skip: number = 0,
     ): Promise<Commit[]> {
+        const query = filterText?.trim() || "";
+        const hashCommits =
+            skip === 0 && /^[0-9a-fA-F]{3,64}$/.test(query)
+                ? await this.commitsForHashPrefix(query, maxCount, branch)
+                : [];
         const args = [
             "log",
             "-z",
@@ -688,10 +694,10 @@ export class GitOps {
         if (skip > 0) {
             args.push(`--skip=${skip}`);
         }
-        if (filterText) {
+        if (query) {
             // Use --fixed-strings to treat the filter as a literal string,
             // preventing ReDoS via git's regex engine on user input.
-            args.push(`--grep=${filterText}`, "-i", "--fixed-strings");
+            args.push(`--grep=${query}`, "-i", "--fixed-strings");
         }
         if (branch) {
             if (!isValidBranchName(branch)) {
@@ -702,8 +708,98 @@ export class GitOps {
             args.push("--all");
         }
         const result = await this.executor.run(args);
-        return parseCommitLog(result);
+        const messageCommits = parseCommitLog(result);
+        if (hashCommits.length === 0) return messageCommits;
+
+        const seen = new Set<string>();
+        const merged: Commit[] = [];
+        for (const commit of hashCommits) {
+            if (seen.has(commit.hash)) continue;
+            seen.add(commit.hash);
+            merged.push(commit);
+        }
+        for (const commit of messageCommits) {
+            if (seen.has(commit.hash)) continue;
+            seen.add(commit.hash);
+            merged.push(commit);
+        }
+        return merged;
     }
+
+    /**
+     * How many commits the first page must load so `hash` stays reachable after a filter is cleared.
+     *
+     * The index comes from the same rev-list scope as `getLog`, limited to the stretch cap.
+     * A commit past that window cannot be placed on the first page, so the default size is kept.
+     * An active text filter, a missing hash, or a Git failure also keeps the default page size.
+     */
+    async firstPageCount(
+        pageSize: number,
+        hash: string | undefined,
+        branch?: string,
+        filterText?: string,
+    ): Promise<number> {
+        if (!hash || filterText) return pageSize;
+        try {
+            const revArgs = ["rev-list", "-n", "4000"];
+            if (branch) {
+                if (!isValidBranchName(branch)) {
+                    throw new Error("Invalid branch filter received for git log.");
+                }
+                revArgs.push("--end-of-options", branch);
+            } else {
+                revArgs.push("--all");
+            }
+            const revListOut = await this.executor.run(revArgs);
+            const pos = revListOut.indexOf(hash);
+            if (pos < 0) return pageSize;
+            const rowIndex = revListOut.slice(0, pos).split("\n").length;
+            return Math.max(pageSize, Math.min(rowIndex + 50, 4000));
+        } catch {
+            return pageSize;
+        }
+    }
+
+    /** Resolves a hex prefix to commits, dropping any that sit outside the active branch filter. */
+    private async commitsForHashPrefix(
+        query: string,
+        maxCount: number,
+        branch?: string,
+    ): Promise<Commit[]> {
+        try {
+            const disambigOut = await this.executor.run([
+                "rev-parse",
+                `--disambiguate=${query.toLowerCase()}`,
+            ]);
+            const candidates = disambigOut.trim().split(/\s+/).filter(Boolean);
+            if (candidates.length === 0) return [];
+
+            const hashLogOut = await this.executor.run([
+                "log",
+                "-z",
+                `--max-count=${maxCount}`,
+                `--pretty=format:${COMMIT_LOG_FORMAT}`,
+                "--no-walk",
+                ...candidates.slice(0, 50),
+            ]);
+            const parsed = parseCommitLog(hashLogOut);
+            if (!branch) return parsed;
+
+            const hashCommits: Commit[] = [];
+            for (const commit of parsed) {
+                try {
+                    await this.executor.run(["merge-base", "--is-ancestor", commit.hash, branch]);
+                    hashCommits.push(commit);
+                } catch {
+                    // The prefix matched a commit outside the selected branch.
+                }
+            }
+            return hashCommits;
+        } catch {
+            return [];
+        }
+    }
+
     /** Lists commits reachable from local branches but not from any remote-tracking ref. */
     async getUnpushedCommitHashes(): Promise<string[]> {
         try {
@@ -805,7 +901,44 @@ export class GitOps {
                 userWarningMessage: commitStatsUnavailableMessage(),
             });
         }
-        return parseCommitDetail(info, hash, Array.from(filesByPath.values()));
+        const detail = parseCommitDetail(info, hash, Array.from(filesByPath.values()));
+        await this.attachContainingBranches(detail);
+        return detail;
+    }
+
+    /**
+     * Fills `detail.refs` with every branch that contains the commit.
+     *
+     * `%D` only names refs that point directly at the commit, so a historical commit would
+     * otherwise show no branches. Tags that point at the commit are kept. Lookup failure leaves
+     * the original decorations in place.
+     */
+    private async attachContainingBranches(detail: CommitDetail): Promise<void> {
+        try {
+            const branchOut = await this.executor.run([
+                "branch",
+                "-a",
+                "--format=%(refname:short)",
+                "--contains",
+                detail.hash,
+            ]);
+            const branchList = branchOut
+                .trim()
+                .split(/\s+/)
+                .filter((branch) => branch && !branch.endsWith("/HEAD") && branch !== "HEAD");
+            if (branchList.length === 0) return;
+
+            const tags = detail.refs.filter((ref) => ref.startsWith("tag:"));
+            const localBranches: string[] = [];
+            const remoteBranches: string[] = [];
+            for (const branch of branchList) {
+                if (branch.includes("/")) remoteBranches.push(branch);
+                else localBranches.push(branch);
+            }
+            detail.refs = [...new Set([...localBranches, ...remoteBranches.slice(0, 50)]), ...tags];
+        } catch {
+            // Branch lookup is optional; git-show decorations still render.
+        }
     }
     // --- Working tree operations ---
     /**

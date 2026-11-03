@@ -5,7 +5,7 @@ import type { CommitDetail, CommitFile, ThemeFolderIconMap, ThemeTreeIcon } from
 import { formatDateTime } from "../shared/date";
 import { useDragResize } from "../commit-panel/hooks/useDragResize";
 import { RefTypeIcon } from "../shared/components/RefTypeIcon";
-import { FileTreeRows } from "../shared/components/FileTreeRows";
+import { VirtualFileTreeRows } from "../commit-panel/components/VirtualFileTreeRows";
 import { SectionHeader } from "../shared/components/SectionHeader";
 import { splitCommitRefs } from "../shared/utils/refs";
 import { JETBRAINS_UI } from "../shared/tokens";
@@ -386,7 +386,7 @@ function CommitChangedFilesPanel({
             />
             {!filesCollapsed && (
                 <Box flex="1 1 auto" overflowY="auto" minH="40px" py="4px">
-                    <FileTreeRows
+                    <VirtualFileTreeRows
                         entries={tree}
                         depth={0}
                         folderIcon={folderIcon}
