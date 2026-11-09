@@ -217,7 +217,10 @@ export function CommitList({
 
     const isLightTheme = useIsLightTheme();
     const lanePalette = useMemo(() => resolveLanePalette(isLightTheme), [isLightTheme]);
-    const graphRows = useMemo(() => computeGraph(commits, lanePalette), [commits, lanePalette]);
+    const graphRows = useMemo(
+        () => computeGraph(commits, lanePalette, currentBranchHeadHash),
+        [commits, lanePalette, currentBranchHeadHash],
+    );
     const maxCols = useMemo(
         () => graphRows.reduce((max, row) => Math.max(max, row.numColumns), 1),
         [graphRows],

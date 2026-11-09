@@ -85,12 +85,16 @@ export function useCommitGraphCanvas({ canvasRef, viewportRef, rows, graphWidth 
 
                 if (i > 0) {
                     const prev = rows[i - 1];
-                    const incoming =
-                        prev.connectionsDown.some((c) => c.toCol === row.column) ||
-                        prev.passThroughLanes.some((l) => l.column === row.column);
-                    if (incoming) {
+                    const sameColIncoming =
+                        prev.connectionsDown.some(
+                            (c) => c.toCol === row.column && c.fromCol === row.column,
+                        ) || prev.passThroughLanes.some((l) => l.column === row.column);
+                    const crossIncoming = prev.connectionsDown.find(
+                        (c) => c.toCol === row.column && c.fromCol !== row.column,
+                    );
+                    if (sameColIncoming || crossIncoming) {
                         ctx.beginPath();
-                        ctx.strokeStyle = row.color;
+                        ctx.strokeStyle = sameColIncoming ? row.color : crossIncoming!.color;
                         ctx.lineWidth = JETBRAINS_UI.graph.lineWidth;
                         ctx.moveTo(cx, y);
                         ctx.lineTo(cx, cy);
@@ -101,6 +105,14 @@ export function useCommitGraphCanvas({ canvasRef, viewportRef, rows, graphWidth 
                 for (const conn of row.connectionsDown) {
                     const fx = conn.fromCol * LANE_WIDTH + LANE_WIDTH / 2 + GRAPH_LEFT_PAD;
                     const tx = conn.toCol * LANE_WIDTH + LANE_WIDTH / 2 + GRAPH_LEFT_PAD;
+                    if (conn.fromCol !== row.column) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = conn.color;
+                        ctx.lineWidth = JETBRAINS_UI.graph.lineWidth;
+                        ctx.moveTo(fx, y);
+                        ctx.lineTo(fx, cy);
+                        ctx.stroke();
+                    }
                     ctx.beginPath();
                     ctx.strokeStyle = conn.color;
                     ctx.lineWidth = JETBRAINS_UI.graph.mergeLineWidth;

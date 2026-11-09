@@ -364,6 +364,29 @@ describe("core utilities", () => {
             { hash: "base", parentHashes: [] },
         ]);
         expect(merge[0].connectionsDown.length).toBeGreaterThan(1);
+
+        const aheadOfHead = computeGraph([
+            { hash: "3bf62ae", parentHashes: ["c312a46"], refs: ["origin/dev/20261030"] },
+            { hash: "c312a46", parentHashes: ["0f156d6"], refs: [] },
+            {
+                hash: "0f156d6",
+                parentHashes: ["85d2f9a"],
+                refs: ["HEAD -> dev/refactor", "origin/dev/refactor"],
+            },
+            { hash: "85d2f9a", parentHashes: [], refs: [] },
+        ]);
+        expect(aheadOfHead.map((row) => row.column)).toEqual([1, 1, 0, 0]);
+        expect(aheadOfHead[0].passThroughLanes).toEqual([]);
+        expect(aheadOfHead[1].passThroughLanes).toEqual([]);
+        expect(aheadOfHead[1].connectionsDown).toEqual([
+            expect.objectContaining({ fromCol: 1, toCol: 0 }),
+        ]);
+
+        const sameBranchAheadOfRemote = computeGraph([
+            { hash: "c2", parentHashes: ["c1"], refs: ["HEAD -> dev/refactor"] },
+            { hash: "c1", parentHashes: [], refs: ["origin/dev/refactor"] },
+        ]);
+        expect(sameBranchAheadOfRemote.map((row) => row.column)).toEqual([0, 0]);
     });
 
     it("date formatting falls back safely on invalid date", () => {
