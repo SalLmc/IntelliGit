@@ -676,7 +676,12 @@ export async function activateRepositoryMode(
             });
         }),
     );
-    await updateActiveRepositoryFromEditor(vscode.window.activeTextEditor);
+    // Commands register at the end of activation, so activation must not wait for this switch's
+    // data load. The switch itself rebinds the executor before its first await, which keeps the
+    // remaining activation steps on the editor's repository.
+    void updateActiveRepositoryFromEditor(vscode.window.activeTextEditor).catch((err) => {
+        console.error("[IntelliGit] Failed to update active repository from editor:", err);
+    });
 
     /**
      * Opens IntelliGit's native three-way merge editor for a repository-relative conflict file.
@@ -1440,6 +1445,7 @@ export async function activateRepositoryMode(
         getRepoRoot,
         isKnownRepositoryRoot: (repositoryRoot) =>
             repositories.some((repository) => repository.root === repositoryRoot),
+        getRepositories: () => repositories,
         setRepositories: (nextRepositories) => {
             setKnownRepositories(nextRepositories);
         },

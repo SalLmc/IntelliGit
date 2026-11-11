@@ -81,6 +81,7 @@ interface RepositoryCommandsDeps {
     worktreeService: WorktreeService;
     getRepoRoot: () => string;
     isKnownRepositoryRoot: (repositoryRoot: string) => boolean;
+    getRepositories: () => DiscoveredRepository[];
     setRepositories: (repositories: DiscoveredRepository[]) => void;
     getCurrentBranches: () => Branch[];
     commitGraphFilterByBranch: (branchName: string | null) => Promise<void>;
@@ -249,6 +250,7 @@ function registerWindowAndRepositoryCommands(deps: RepositoryCommandsDeps): void
         context,
         gitOps,
         getRepoRoot,
+        getRepositories,
         setRepositories,
         setActiveRepository,
         clearSelection,
@@ -285,8 +287,11 @@ function registerWindowAndRepositoryCommands(deps: RepositoryCommandsDeps): void
         );
     };
     const selectRepository = async (): Promise<void> => {
-        const repositories = await discoverGitRepositories(workspaceRoots());
-        setRepositories(repositories);
+        // Discovery spawns Git per candidate; the picker must not wait on it.
+        void discoverGitRepositories(workspaceRoots()).then(setRepositories, (err) => {
+            console.error("[IntelliGit] Failed to refresh repositories:", err);
+        });
+        const repositories = getRepositories();
         if (repositories.length === 0) {
             showTimedInformationMessage(NO_REPOSITORY_MESSAGE);
             return;
