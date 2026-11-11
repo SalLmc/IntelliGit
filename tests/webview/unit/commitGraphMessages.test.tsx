@@ -27,10 +27,12 @@ function Harness({
     postMessage,
     selectedHash,
     onShowRebaseDialog,
+    onHook,
 }: {
     dispatch: React.Dispatch<CommitGraphPanelAction>;
     postMessage: (message: unknown) => void;
     selectedHash: string | null;
+    onHook?: (hook: ReturnType<typeof useCommitGraphMessages>) => void;
     onShowRebaseDialog?: (dialog: {
         requestId: string;
         commits: readonly InteractiveRebaseRangeCommit[];
@@ -43,7 +45,7 @@ function Harness({
     // would tear down and re-subscribe the message listener on every render and mask whether the
     // hook itself keeps a fixed subscription lifetime.
     const vscode = useMemo(() => ({ postMessage }) as unknown as VsCodeApi, [postMessage]);
-    useCommitGraphMessages({
+    const hook = useCommitGraphMessages({
         vscode,
         dispatch,
         sendReady: false,
@@ -51,7 +53,52 @@ function Harness({
         selectedHash,
         onShowRebaseDialog,
     });
+    onHook?.(hook);
     return null;
+}
+
+function postFromHost(data: unknown): void {
+    act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data }));
+    });
+}
+
+function loadPage(...hashes: string[]): void {
+    postFromHost({
+        type: "loadCommits",
+        append: false,
+        hasMore: false,
+        commits: hashes.map((hash) => makeCommit(hash, `commit ${hash}`)),
+    });
+}
+
+async function renderHarness(selectedHash: string | null) {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const dispatch = vi.fn();
+    const postMessage = vi.fn();
+    let hook: ReturnType<typeof useCommitGraphMessages> | undefined;
+    await act(async () => {
+        root.render(
+            <Harness
+                dispatch={dispatch}
+                postMessage={postMessage}
+                selectedHash={selectedHash}
+                onHook={(next) => (hook = next)}
+            />,
+        );
+    });
+    const lastLoadSelection = () =>
+        dispatch.mock.calls.filter(([action]) => action.type === "loadCommits").at(-1)?.[0]
+            .selectedHash;
+    const cleanup = async () => {
+        await act(async () => {
+            root.unmount();
+        });
+        host.remove();
+    };
+    return { dispatch, postMessage, hook: () => hook!, lastLoadSelection, cleanup };
 }
 
 beforeAll(() => {
@@ -219,6 +266,52 @@ describe("useCommitGraphMessages", () => {
                 root.unmount();
             });
             host.remove();
+        }
+    });
+
+    it("keeps the branch tip selected when returning to all branches", async () => {
+        const harness = await renderHarness("tip1");
+        try {
+            postFromHost({ type: "setSelectedBranch", branch: null });
+            loadPage("newer", "tip1");
+
+            expect(harness.lastLoadSelection()).toBe("tip1");
+            expect(harness.postMessage).not.toHaveBeenCalledWith(
+                expect.objectContaining({ type: "selectCommit" }),
+            );
+        } finally {
+            await harness.cleanup();
+        }
+    });
+
+    it("selects the first row when all branches no longer list the selection", async () => {
+        const harness = await renderHarness("other-repo");
+        try {
+            postFromHost({ type: "setSelectedBranch", branch: null });
+            loadPage("aa11", "bb22");
+
+            expect(harness.lastLoadSelection()).toBe("aa11");
+            expect(harness.postMessage).toHaveBeenCalledWith({
+                type: "selectCommit",
+                hash: "aa11",
+            });
+        } finally {
+            await harness.cleanup();
+        }
+    });
+
+    it("selects a search match and keeps it after the search is cleared", async () => {
+        const harness = await renderHarness("aa11");
+        try {
+            act(() => harness.hook().keepSelectionIfListedOnNextLoad());
+            loadPage("match");
+            expect(harness.lastLoadSelection()).toBe("match");
+
+            act(() => harness.hook().keepSelectionIfListedOnNextLoad());
+            loadPage("aa11", "bb22", "match");
+            expect(harness.lastLoadSelection()).toBe("match");
+        } finally {
+            await harness.cleanup();
         }
     });
 

@@ -2,7 +2,7 @@
 // The hook stays separate from render logic so the root component remains small.
 // It preserves the existing VS Code webview message contract without changing dispatch behavior.
 
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type React from "react";
 import type { CommitGraphInbound } from "../../protocol/commitGraphTypes";
 import { openChecksTab } from "../commit-info/checks/checksTabState";
@@ -10,9 +10,35 @@ import type { CommitGraphPanelAction } from "./types";
 import type { VsCodeApi } from "../shared/vscodeApi";
 
 /**
+ * How the next full page load picks the selected commit.
+ *
+ * - `keep`: a refresh keeps the selected hash even when the page no longer lists it (#246).
+ * - `first`: scoping to a branch selects that branch's tip.
+ * - `keepIfListed`: a new search result or the return to all branches keeps the selected hash
+ *   when the page lists it, so the list stays on that commit; otherwise it selects the first row.
+ */
+type NextLoadSelection = "keep" | "first" | "keepIfListed";
+
+function pickSelectedHash(
+    policy: NextLoadSelection,
+    previousSelectedHash: string | null,
+    commits: readonly { hash: string }[],
+): string | null {
+    const firstCommitHash = commits[0]?.hash ?? null;
+    if (policy === "first") return firstCommitHash;
+    if (policy === "keepIfListed") {
+        const listed = commits.some((commit) => commit.hash === previousSelectedHash);
+        return listed ? previousSelectedHash : firstCommitHash;
+    }
+    return previousSelectedHash ?? firstCommitHash;
+}
+
+/**
  * Subscribes to extension-host commit graph messages and dispatches panel state updates.
  *
  * `loadingMore` remains caller-owned because the root component also controls pagination requests.
+ * Returns `keepSelectionIfListedOnNextLoad`, which the caller invokes when it requests new search
+ * results, so the selection follows the results instead of a commit they no longer list.
  */
 export function useCommitGraphMessages(params: {
     vscode: VsCodeApi;
@@ -25,7 +51,7 @@ export function useCommitGraphMessages(params: {
     setViewVisible: (visible: boolean) => void;
     onShowRebaseDialog: (dialog: Extract<CommitGraphInbound, { type: "showRebaseDialog" }>) => void;
     onShowReviewPrompt: (requestId: string) => void;
-}): void {
+}): { keepSelectionIfListedOnNextLoad: () => void } {
     const {
         vscode,
         dispatch,
@@ -39,7 +65,7 @@ export function useCommitGraphMessages(params: {
     } = params;
     const selectedHashRef = useRef<string | null>(selectedHash);
     const ciRepoKeyRef = useRef(ciRepoKey);
-    const selectFirstOnNextLoadRef = useRef(false);
+    const nextLoadSelectionRef = useRef<NextLoadSelection>("keep");
     useLayoutEffect(() => {
         selectedHashRef.current = selectedHash;
         ciRepoKeyRef.current = ciRepoKey;
@@ -72,17 +98,13 @@ export function useCommitGraphMessages(params: {
             switch (data.type) {
                 case "loadCommits": {
                     loadingMore.current = false;
-                    const forceFirstCommit = !data.append && selectFirstOnNextLoadRef.current;
                     const previousSelectedHash = selectedHashRef.current;
-                    const firstCommitHash = data.commits[0]?.hash ?? null;
-                    // Only a branch change may move the selection on its own: a refresh keeps the
-                    // hash already selected, even when this page no longer lists it (#246).
-                    const nextSelectedHash = forceFirstCommit
-                        ? firstCommitHash
-                        : (previousSelectedHash ??
-                          (!data.append ? firstCommitHash : previousSelectedHash));
+                    const policy = data.append ? null : nextLoadSelectionRef.current;
+                    const nextSelectedHash = policy
+                        ? pickSelectedHash(policy, previousSelectedHash, data.commits)
+                        : previousSelectedHash;
                     if (!data.append) {
-                        selectFirstOnNextLoadRef.current = false;
+                        nextLoadSelectionRef.current = "keep";
                     }
                     selectedHashRef.current = nextSelectedHash;
                     dispatch({
@@ -96,7 +118,7 @@ export function useCommitGraphMessages(params: {
                     if (
                         !data.append &&
                         nextSelectedHash !== null &&
-                        (forceFirstCommit || nextSelectedHash !== previousSelectedHash)
+                        (policy === "first" || nextSelectedHash !== previousSelectedHash)
                     ) {
                         vscode.postMessage({
                             type: "selectCommit",
@@ -118,7 +140,7 @@ export function useCommitGraphMessages(params: {
                     });
                     break;
                 case "setSelectedBranch":
-                    selectFirstOnNextLoadRef.current = true;
+                    nextLoadSelectionRef.current = data.branch ? "first" : "keepIfListed";
                     dispatch({ type: "setSelectedBranch", branch: data.branch ?? null });
                     break;
                 case "setFilterText":
@@ -163,7 +185,7 @@ export function useCommitGraphMessages(params: {
                     openChecksTab();
                     break;
                 case "loadError":
-                    selectFirstOnNextLoadRef.current = false;
+                    nextLoadSelectionRef.current = "keep";
                     dispatch({ type: "loadError", clearCommits: !loadingMore.current });
                     loadingMore.current = false;
                     console.error("[IntelliGit] Load error:", data.message);
@@ -179,4 +201,9 @@ export function useCommitGraphMessages(params: {
         // Keep the original root effect subscription lifetime; dispatch and loadingMore are stable.
         // react-doctor-disable-next-line react-doctor/exhaustive-deps
     }, [sendReady, vscode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const keepSelectionIfListedOnNextLoad = useCallback(() => {
+        nextLoadSelectionRef.current = "keepIfListed";
+    }, []);
+    return { keepSelectionIfListedOnNextLoad };
 }

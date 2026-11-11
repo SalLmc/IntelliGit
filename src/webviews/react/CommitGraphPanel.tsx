@@ -374,7 +374,7 @@ export function CommitGraphPanel({
         true,
     );
 
-    useCommitGraphMessages({
+    const { keepSelectionIfListedOnNextLoad } = useCommitGraphMessages({
         vscode,
         dispatch,
         sendReady,
@@ -430,6 +430,7 @@ export function CommitGraphPanel({
 
     const publishFilterText = useDebouncedFilterPublish((text: string) => {
         loadingMore.current = false;
+        keepSelectionIfListedOnNextLoad();
         vscode.postMessage({ type: "filterText", text });
     });
     const handleFilterText = useCallback(
