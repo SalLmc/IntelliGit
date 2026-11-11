@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.5] - 2026-11-10
+
+### Changed
+
+- Nothing changes in the extension yet. This is groundwork so that the coming Re-run and Cancel buttons can remember your click across a restart, and an old CI result never comes back while the new run starts.
+
+## [0.43.4] - 2026-11-10
+
+### Added
+
+- Groundwork for a coming Checks tab that will show a commit's CI workflows, jobs and steps, opening straight to the step that failed. The tab stays hidden until it is finished.
+
+### Changed
+
+- Switching to another repository now clears the selected commit straight away, even when saving the new choice fails or another switch takes over.
+
+## [0.43.3] - 2026-11-10
+
+### Added
+
+- IntelliGit now reads the workflows, jobs and steps behind a commit's GitHub checks, ready for the new Checks tab. Failed jobs are found even in very large runs, and GitHub page links are followed only on your GitHub server, so your sign-in never goes anywhere else.
+
+## [0.43.2] - 2026-11-07
+
+### Fixed
+
+- A commit whose CI failed while other jobs were still running now keeps updating until every job finishes.
+- Saved CI results now belong to the account that loaded them, so after you switch accounts the previous account's results are never shown, even after a restart, while results are still loading, or when you sign in again from another window.
+
+## [0.43.1] - 2026-11-07
+
+### Fixed
+
+- New changelist, Rename, Set active, Save list to Shelf and Commit list no longer fail with "Changelists changed" while IntelliGit is still counting changed lines in the background. They still stop if a list, the active list or a file's list really changed since you clicked.
+
+## [0.43.0] - 2026-11-06
+
+### Added
+
+- The Git Log's Changed Files pane can now list a commit's files as a flat list instead of a folder tree. Click the Group by Directory button in the pane's header to switch; each file then shows its folder beside its name. IntelliGit remembers your choice.
+
+## [0.42.5] - 2026-11-05
+
+### Changed
+
+- Nothing changes in the extension itself. An automated screenshot test of the merge editor's scrollbar no longer fails at random, so real problems are easier to spot.
+
+## [0.42.4] - 2026-11-05
+
+### Changed
+
+- Nothing changes in the extension itself. A new automated test deletes a worktree from its right-click menu in both the docked Git Log and the undocked Git Log tab, and checks that its row disappears straight away, so this stays working in future releases.
+
+## [0.42.3] - 2026-11-05
+
+### Fixed
+
+- The Git Log branch list now updates by itself when a worktree is added or deleted outside IntelliGit, such as from a terminal or VS Code's own Git commands. Before, a deleted worktree stayed listed until you pressed Refresh.
+
+## [0.42.2] - 2026-11-05
+
+### Fixed
+
+- Right-clicking the left (older) side of a Git diff no longer offers Open Partial Changes. That side shows the committed copy, not your local file, so the action could only answer with "only available for local files". It is still offered on the right side and in normal editors.
+
+## [0.42.1] - 2026-11-05
+
+### Fixed
+
+- Releases recover by themselves from two slow-registry hiccups that used to need a manual rerun, sometimes several. If a rerun finds the VS Code Marketplace already holds the version but its public listing hasn't caught up, the release waits up to ten minutes for it, checks the uploaded file is byte-for-byte the one being released, and carries on. If Open VSX stops answering mid-upload, the release checks whether the upload landed anyway and tries again up to two more times if it didn't.
+
+## [0.42.0] - 2026-11-04
+
+### Added
+
+- IntelliGit now warns you at startup when your Git is older than 2.31. Merge resolution, partial commits and shelf restore need Git 2.31 or later, and on older Git they used to fail with an unclear error. The warning names your Git version and the features affected. Everything else keeps working, and the README now lists Git 2.31 as the minimum.
+
+## [0.41.4] - 2026-11-04
+
+### Changed
+
+- Shelving many modified files is faster. IntelliGit used to start two Git processes per file to check whether it must keep each file's exact bytes, so shelving 10,000 files started about 20,000 of them. It now checks and rebuilds all files in one go. If Git refuses part of the batch, IntelliGit splits it and falls back to the old one-file path only where needed, so each file still gets its own result. Saved shelves are unchanged.
+
+## [0.41.3] - 2026-11-04
+
+### Fixed
+
+- Restoring or rolling back a shelf no longer overwrites a change another Git tool staged at the same moment. IntelliGit now takes Git's index lock before it checks the index, the same way Git does, so no other Git process can slip in between the check and the write. If another Git process holds the lock for more than a few seconds, the message now says so in Git's own words and tells you which lock file to remove if no Git process is running.
+
+## [0.41.2] - 2026-11-04
+
+### Fixed
+
+- When a rebase or merge **Continue** or **Abort** can't go ahead because IntelliGit's changelist data is busy or unreadable, the message now tells you what to do. If another IntelliGit action is running, it asks you to try again in a moment. If the data can't be read, it explains that you can finish the step with Git in a terminal, which skips IntelliGit's own recovery. If an IntelliGit Unshelve or Undo Commit is still unfinished, it now names that action instead of pointing you to a terminal. And if the view fails to refresh after the step, it no longer claims that Git was not changed.
+
+## [0.41.1] - 2026-11-03
+
+### Fixed
+
+- The end-to-end checks for moving the Commit panel out of its dock and back, creating a changelist, and saving selected lines to a shelf a second time no longer fail now and then. A shelf recovery test also no longer counts something that could never change, so it now checks only what matters: the shelf comes back with exactly the content it had. Nothing changes in the extension itself.
+
 ## [0.41.0] - 2026-11-01
 
 ### Added

@@ -36,16 +36,17 @@ import {
 import { CredentialStore } from "../services/commitChecks/credentialStore";
 import { normalizeHostMap } from "../services/commitChecks/hostConfig";
 import { normalizeCommitChecksSettings } from "../services/commitChecks/settingsConfig";
-import { GitHubProvider } from "../services/commitChecks/githubProvider";
-import { GitLabProvider } from "../services/commitChecks/gitlabProvider";
-import { BitbucketCloudProvider } from "../services/commitChecks/bitbucketCloudProvider";
-import { BitbucketServerProvider } from "../services/commitChecks/bitbucketServerProvider";
-import { createHttpGetJson, type FetchJson } from "../services/commitChecks/http";
 import { CommitChecksRequestGateRegistry } from "../services/commitChecks/requestGate";
 import { CommitChecksService } from "../services/commitChecks/service";
 import { CommitChecksPersistentCache } from "../services/commitChecks/persistentCache";
-import type { CommitChecksProvider, ProviderId } from "../services/commitChecks/types";
+import { CommitCiDetailService } from "../services/commitChecks/detailService";
+import { CiDetailPersistentCache } from "../services/commitChecks/detailPersistentCache";
+import { CiGenerations } from "../services/commitChecks/ciGenerations";
+import { CiActionFenceStore } from "../services/commitChecks/ciActionFence";
+import { createCiTrace } from "../services/commitChecks/ciTrace";
+import { createCommitChecksProviders } from "./commitChecksProviders";
 import { captureWebviewViewProvider } from "../e2e/webviewCapture";
+import { readE2eCiFixture } from "../e2e/ciFixture";
 import { CommitGraphViewProvider } from "../views/CommitGraphViewProvider";
 import { compactCommitGraphViewOptions } from "../views/commitGraphHostOptions";
 import { CommitInfoViewProvider } from "../views/CommitInfoViewProvider";
@@ -253,33 +254,71 @@ export async function activateRepositoryMode(
             ),
         );
     }
-    const commitChecksService = new CommitChecksService({
+    // One set of TTLs for snapshots and details, so the badge and the CI tab age together.
+    const commitChecksCacheTtls = {
         ttlMs: 30_000,
         noneTtlMs: 60 * 60 * 1000,
         unavailableTtlMs: 15 * 60 * 1000,
         maxEntries: 1_000,
+    };
+    let ciTraceChannel: vscode.LogOutputChannel | undefined;
+    const ciTrace = createCiTrace(() => {
+        ciTraceChannel = vscode.window.createOutputChannel(vscode.l10n.t("IntelliGit CI"), {
+            log: true,
+        });
+        return ciTraceChannel;
+    });
+    // Loads the stored re-run and cancel fences now, so they apply before the first fetch.
+    // Optional like every other workspaceState use here: activation test contexts omit it.
+    const ciActionFences =
+        context.workspaceState &&
+        new CiActionFenceStore(context.workspaceState, { trace: ciTrace });
+    const commitChecksService = new CommitChecksService({
+        ...commitChecksCacheTtls,
         persistentCache: new CommitChecksPersistentCache(context.globalState, {
             noneMaxAgeMs: 60 * 60 * 1000,
+            fence: ciActionFences,
         }),
+        trace: ciTrace,
+        fences: ciActionFences,
     });
+    const commitCiDetailService = new CommitCiDetailService({
+        ...commitChecksCacheTtls,
+        persistentCache: new CiDetailPersistentCache(context.globalState, {
+            fence: ciActionFences,
+        }),
+        trace: ciTrace,
+        fences: ciActionFences,
+    });
+    const ciGenerations = new CiGenerations();
+    if (ciActionFences) context.subscriptions.push(ciActionFences);
+    context.subscriptions.push(
+        {
+            dispose: () => {
+                // In-flight CI work started before the extension closed must not publish.
+                ciGenerations.bumpLifecycle();
+                ciTraceChannel?.dispose();
+            },
+        },
+        // The coordinators keep their activation-time settings (reload to apply), but CI
+        // work already running must not publish, and no cached result may be served, under
+        // settings the user just changed.
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration("intelligit.commitChecks")) {
+                ciGenerations.bumpLifecycle();
+                commitChecksService.clear();
+                commitCiDetailService.clear();
+            }
+        }),
+    );
     const requestGateRegistry = new CommitChecksRequestGateRegistry(
         vscode.l10n.t("Commit-check requests are temporarily paused due to rate limiting."),
     );
-    const fetchFor =
-        (providerId: ProviderId): FetchJson =>
-        (url, headers) =>
-            requestGateRegistry.run(providerId, url, (generation) => {
-                const fetchJson = createHttpGetJson((response) => {
-                    requestGateRegistry.observeResponse(providerId, response, generation);
-                });
-                return fetchJson(url, headers);
-            });
-    const commitChecksProviders: readonly CommitChecksProvider[] = [
-        new GitHubProvider(fetchFor("github"), commitCheckSettings.ciCdPattern),
-        new GitLabProvider(fetchFor("gitlab"), credentialStore, commitCheckSettings.ciCdPattern),
-        new BitbucketCloudProvider(fetchFor("bitbucket-cloud"), credentialStore),
-        new BitbucketServerProvider(fetchFor("bitbucket-server"), credentialStore),
-    ];
+    const commitChecksProviders = createCommitChecksProviders(
+        requestGateRegistry,
+        credentialStore,
+        commitCheckSettings.ciCdPattern,
+    );
 
     let currentBranches: Branch[] = [];
     let currentWorktrees: GitWorktree[] = [];
@@ -303,11 +342,17 @@ export async function activateRepositoryMode(
           }
         | undefined;
 
+    const ciFixture = (hash: string) => readE2eCiFixture(context.globalState, hash);
     const commitGraph = new CommitGraphViewProvider(context.extensionUri, gitOps, credentialStore, {
         hostMap: commitCheckHostMap,
         settings: commitCheckSettings,
         commitChecksService,
+        commitCiDetailService,
+        ciGenerations,
+        ciTrace,
         commitChecksProviders,
+        ciRepoKey: () => repoRoot,
+        ciFixture,
     });
     const sidebarGraph = new CommitGraphViewProvider(
         context.extensionUri,
@@ -319,10 +364,22 @@ export async function activateRepositoryMode(
             hostMap: commitCheckHostMap,
             settings: commitCheckSettings,
             commitChecksService,
+            commitCiDetailService,
+            ciGenerations,
+            ciTrace,
             commitChecksProviders,
+            ciFixture,
         },
     );
     const commitInfo = new CommitInfoViewProvider(context.extensionUri);
+    commitInfo.setCiSource({
+        repoKey: () => repoRoot,
+        generations: ciGenerations,
+        enabled: commitCheckSettings.enabled,
+        getDetail: (hash, options, ctx, onScanUpdate) =>
+            commitGraph.getCommitCiDetail(hash, options, ctx, onScanUpdate),
+    });
+    sidebarGraph.onOpenCommitInChecks((hash) => commitInfo.openChecksTab(hash));
     const commitPanel = new CommitPanelViewProvider(
         context.extensionUri,
         gitOps,
@@ -347,6 +404,11 @@ export async function activateRepositoryMode(
         nextRepositories: DiscoveredRepository[],
         activeRoot: string | null = activeRepository.root,
     ): void => {
+        const closed = repositories.some(
+            (repository) => !nextRepositories.some((next) => next.root === repository.root),
+        );
+        // CI work started for a repository that just closed must not publish.
+        if (closed) ciGenerations.bumpLifecycle();
         repositories = nextRepositories;
         void setViewContext(HAS_MULTIPLE_REPOSITORIES_CONTEXT, repositories.length > 1);
         sidebarGraph.setShowRepositoryLabel(repositories.length > 1);
@@ -616,13 +678,16 @@ export async function activateRepositoryMode(
         refreshService = createRefreshService(repoRoot);
         refreshServiceWatchersRegistered = false;
         registerRefreshServiceWatchers();
+        // Cleared before the fallible preference write: the panes key Checks requests by repoRoot,
+        // which already names the new repository, so a selection left from the old one would
+        // wait forever on requests the host drops.
+        clearSelection();
         if (!options.persistSelectionAfterBranchData) {
             if (!shouldContinue()) return;
             // react-doctor-disable-next-line react-doctor/async-defer-await
             await context.workspaceState?.update(SELECTED_REPOSITORY_KEY, repoRoot);
             if (!shouldContinue()) return;
         }
-        clearSelection();
         const persistSelectionAfterBranchDataApplied = options.persistSelectionAfterBranchData
             ? async (): Promise<void> => {
                   await persistActiveEditorSelection(repoRoot, shouldContinue);
@@ -846,6 +911,10 @@ export async function activateRepositoryMode(
                     return data;
                 },
                 commitChecksService,
+                commitCiDetailService,
+                ciGenerations,
+                ciTrace,
+                ciFixture,
                 commitChecksProviders,
                 commitMessageGenerationCoordinator,
                 onSelectedRepositoryRootChanged: async (root) => {
@@ -1318,9 +1387,11 @@ export async function activateRepositoryMode(
      */
     const refreshCommitCheckBadges = async (): Promise<void> => {
         requestGateRegistry.reset();
+        ciGenerations.bumpAuth();
         commitGraph.clearChecksCache();
         sidebarGraph.clearChecksCache();
         undocked?.clearChecksCache();
+        commitInfo.refreshChecksTab();
         await Promise.all([commitGraph.refresh(), sidebarGraph.refresh()]);
         if (undocked) await undocked.refresh();
     };

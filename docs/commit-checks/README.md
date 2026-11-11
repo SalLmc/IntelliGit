@@ -28,6 +28,36 @@ registered provider claims the commit. If that provider is disabled, the badge i
 `none` — the extension does not fall through to a different remote whose provider is
 enabled.
 
+## Checks tab
+
+The Checks tab is still being built and stays hidden in released versions until it is
+finished; this section describes it as it will appear. While it is hidden, no Checks tab
+detail is fetched; the commit-list CI badges still fetch as before.
+
+The commit-details pane has two tabs, **Files** (the default) and **Checks**. The pane
+remembers the tab you chose. The Checks tab shows the selected commit's CI as a tree:
+workflow or pipeline, then its jobs, then each job's steps, each with its state,
+duration and start time. Failed jobs open down to the step that failed. Statuses and
+third-party checks that belong to no workflow sit under **Other checks**. Selecting a
+job shows its details beside the tree when the pane is at least 760 px wide, and below
+it in a narrower pane.
+
+- The header shows the overall state, the duration and, when the provider reports it,
+  "push by <actor> · <ref> · #<run>". **Refresh** always fetches again; **Open in
+  browser** appears when the provider gives a link.
+- Controls appear only for what the provider can do. A provider whose workflow detail
+  this release does not read (GitLab, Bitbucket Cloud and Bitbucket Server / Data
+  Center) shows a flat list with no empty sections.
+- A very large run shows a note when its list was cut short, with a link to the rest
+  in the browser. Failed jobs past that limit are still listed as they are found.
+- The tab shows the same signed-out, error and rate-limit states as the popover, and a
+  link to the setting when CI checks are turned off. Signing in or out reloads an open
+  tab, so it never keeps showing the previous account's checks.
+- The popover's **Open in Checks** button selects the commit and switches to this tab.
+
+The tab asks for detail only while it is open. A reply for a commit or repository that
+is no longer selected, or an older reply for the same commit, is dropped.
+
 ## Authentication per provider
 
 | Provider | Credential | How to provide it | Scope / permission |
@@ -96,6 +126,31 @@ settings scoped), so snapshots from different providers or repositories are neve
 shared. Eligible settled and no-check snapshots can also be retained across extension
 restarts; pending and unavailable snapshots are not persisted.
 
+A snapshot counts as settled only when every check in it has finished. A failure
+reported while other checks are still running stays on the short pending refresh
+interval and is not kept across restarts, so the badge keeps updating until the last
+job ends. The detailed CI view uses its own cache with the same intervals; it keeps a
+detail across restarts only when the run is finished and every run, job and check was
+listed in full.
+
+For GitHub, the detailed view reads the commit's workflow runs and each run's latest
+jobs and steps from the Actions API, 100 items per page and at most 10 pages (1,000
+items) per list. A longer list comes back marked as cut short at 1,000 items; when that run failed,
+IntelliGit keeps reading the pages past the limit one at a time, keeping only failed
+jobs, so a scan that reaches the end of the list shows every failed job. That scan
+pauses while the rate-limit gate cools down and resumes when the cooldown ends; if a
+page fails, a next-page link is refused or the job budget runs out, it stops and the
+failed jobs it found so far may be only part of the list. Refresh continues from the
+page it stopped at. If the run was re-run while the scan was reading, the scan stops
+instead and Refresh reads the run again from the start. Its progress is kept in memory only. Next-page
+links are followed only when they stay on `https://api.github.com` under the
+repository's own path; any other link stops paging, is never requested, and the list
+is marked as cut short, so the token is never sent anywhere else.
+
+Diagnostic lines for CI requests go to the **IntelliGit CI** output channel. They name
+the operation, provider and short commit hash; they never contain tokens, request
+headers or log text.
+
 Automatic HTTP requests pass through a gate for each provider/API-origin pair. Every
 gate allows four concurrent requests and starts no more than 300 automatic requests in
 an hour. It also honors provider-specific response signals:
@@ -115,3 +170,30 @@ an hour. It also honors provider-specific response signals:
 
 A bare HTTP 403 from GitLab or either Bitbucket provider remains an authentication or
 availability result, not a quota cooldown.
+
+## Re-run and cancel
+
+> Planned: the Re-run and Cancel actions are not available yet. This section describes
+> how they will behave; the note store below is in place, but nothing creates a note yet.
+
+Before IntelliGit sends a re-run or cancel request, it saves a note for that run or job
+in the workspace and waits for the save to finish; if the note cannot be saved, the
+request is not sent. While a note exists for a commit, that commit's check results are
+kept in memory only and count as out of date after 30 seconds (the short pending cache
+lifetime), so the next look at the commit fetches it again; how often the commit is
+polled is a separate schedule. The results are never written to the caches that survive
+a restart, so an old result cannot come back while the new run starts.
+
+The note itself is kept across a restart. It ends when a result fetched after the click
+shows the action took effect, or at once when the request definitely fails, for example
+when the provider refuses it. What counts as taking effect depends on the action:
+
+- Re-run on GitHub: the run gets a new attempt, or moves back to queued or running.
+- Retry of a GitLab job: a newer job with the same name appears in the pipeline.
+- Retry of a GitLab pipeline: a job newer than any the pipeline had appears.
+- Cancel: the run is cancelled or finished.
+
+A result for an older run attempt than the one clicked never ends a note. Nothing
+removes a note by age: after 10 minutes without that evidence the target reads
+"not seen yet - Refresh", and clicking Refresh then ends the note and fetches the
+commit again. A Refresh before then keeps the note.

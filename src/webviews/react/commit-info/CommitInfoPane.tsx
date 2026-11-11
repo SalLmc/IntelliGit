@@ -1,22 +1,58 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { SYSTEM_FONT_STACK } from "../../../utils/constants";
 import { Box, Flex } from "@chakra-ui/react";
+import { VscListTree } from "react-icons/vsc";
 import type { CommitDetail, CommitFile, ThemeFolderIconMap, ThemeTreeIcon } from "../../../types";
 import { formatDateTime } from "../shared/date";
 import { useDragResize } from "../commit-panel/hooks/useDragResize";
 import { RefTypeIcon } from "../shared/components/RefTypeIcon";
 import { VirtualFileTreeRows } from "../commit-panel/components/VirtualFileTreeRows";
 import { SectionHeader } from "../shared/components/SectionHeader";
+import { ToolbarIconButton } from "../shared/components/ToolbarIconButton";
 import { splitCommitRefs } from "../shared/utils/refs";
-import { JETBRAINS_UI } from "../shared/tokens";
+import { JETBRAINS_UI, TOOLBAR_ICON_ACCENTS } from "../shared/tokens";
 import { t } from "../shared/i18n";
+import { getVsCodeApi } from "../shared/vscodeApi";
 import {
     buildFileTree,
     collectDirPaths,
     type TreeEntry as GenericTreeEntry,
 } from "../shared/fileTree";
+import { ChecksTab } from "./checks/ChecksTab";
+import {
+    isChecksTabEnabled,
+    OPEN_CHECKS_TAB_EVENT,
+    persistCommitInfoTab,
+    readCommitInfoTab,
+    type CommitInfoTab,
+} from "./checks/checksTabState";
 
 type TreeEntry = GenericTreeEntry<CommitFile>;
+
+interface CommitInfoViewState {
+    commitInfoGroupByDir?: boolean;
+}
+
+/** The saved Group by Directory choice; the folder tree when nothing is saved or the state cannot be read. */
+function readGroupByDir(): boolean {
+    try {
+        return (
+            getVsCodeApi<unknown, CommitInfoViewState>().getState()?.commitInfoGroupByDir ?? true
+        );
+    } catch {
+        return true;
+    }
+}
+
+/** Saves the choice into the panel's shared webview state, keeping what other views of the panel saved there. */
+function persistGroupByDir(groupByDir: boolean): void {
+    try {
+        const api = getVsCodeApi<unknown, CommitInfoViewState>();
+        api.setState({ ...api.getState(), commitInfoGroupByDir: groupByDir });
+    } catch {
+        // Ignore persistence errors and keep the toggle working for this session.
+    }
+}
 
 interface FileStats {
     additions: number;
@@ -50,6 +86,10 @@ interface CommitInfoPaneProps {
     folderExpandedIcon?: ThemeTreeIcon;
     folderIconsByName?: ThemeFolderIconMap;
     onOpenDiff?: (commitHash: string, filePath: string) => void;
+    /** Repository the host answers CI requests for; the Files | Checks tabs show only when set. */
+    ciRepoKey?: string;
+    /** False when CI checks are turned off in settings; the Checks tab then says so. */
+    commitChecksEnabled?: boolean;
 }
 
 const VISUALLY_HIDDEN_STYLE: React.CSSProperties = {
@@ -119,6 +159,8 @@ export function CommitInfoPane({
     folderExpandedIcon,
     folderIconsByName,
     onOpenDiff,
+    ciRepoKey,
+    commitChecksEnabled = true,
 }: CommitInfoPaneProps): React.ReactElement {
     const [expandedDirsState, setExpandedDirsState] = useState<CommitScopedExpandedDirs>({
         commitHash: null,
@@ -141,8 +183,29 @@ export function CommitInfoPane({
         },
     );
 
+    const [groupByDir, setGroupByDir] = useState(readGroupByDir);
+    const [tab, setTab] = useState<CommitInfoTab>(readCommitInfoTab);
+    const chooseTab = useCallback((next: CommitInfoTab) => {
+        setTab(next);
+        persistCommitInfoTab(next);
+    }, []);
+    useEffect(() => {
+        const showChecks = (): void => setTab("checks");
+        window.addEventListener(OPEN_CHECKS_TAB_EVENT, showChecks);
+        return () => window.removeEventListener(OPEN_CHECKS_TAB_EVENT, showChecks);
+    }, []);
+    const checksAvailable = ciRepoKey !== undefined && isChecksTabEnabled();
+    const showChecks = checksAvailable && tab === "checks";
+    const tabsId = useId();
+    const shownTab: CommitInfoTab = showChecks ? "checks" : "files";
+
     const detailHash = detail?.hash ?? null;
-    const tree = useMemo(() => buildFileTree(detail?.files ?? []), [detail?.files]);
+    const tree = useMemo<TreeEntry[]>(() => {
+        const files = detail?.files ?? [];
+        return groupByDir
+            ? buildFileTree(files)
+            : files.map((file) => ({ type: "file" as const, file }));
+    }, [detail?.files, groupByDir]);
     const defaultExpandedDirs = useMemo(() => new Set(collectDirPaths(tree)), [tree]);
     const expandedDirs =
         expandedDirsState.commitHash === detailHash ? expandedDirsState.dirs : defaultExpandedDirs;
@@ -186,6 +249,11 @@ export function CommitInfoPane({
         setDetailCollapsed((value) => !value);
     }, []);
 
+    const toggleGroupByDir = useCallback(() => {
+        setGroupByDir(!groupByDir);
+        persistGroupByDir(!groupByDir);
+    }, [groupByDir]);
+
     if (!detail) {
         // `hasSelection` counts as loading, not as an empty selection. A graph beside this pane
         // auto-selects its newest commit and only then asks the host for the detail, so between
@@ -211,34 +279,109 @@ export function CommitInfoPane({
             overflow="hidden"
             bg={JETBRAINS_UI.color.panel}
         >
-            <CommitChangedFilesPanel
-                repositoryRoot={repositoryRoot}
-                detail={detail}
-                tree={tree}
-                expandedDirs={expandedDirs}
-                selectedFilePath={selectedFilePath}
-                filesCollapsed={filesCollapsed}
-                folderIcon={folderIcon}
-                folderExpandedIcon={folderExpandedIcon}
-                folderIconsByName={folderIconsByName}
-                onToggleFiles={toggleFilesCollapsed}
-                onToggleDir={toggleDir}
-                onSelectFile={selectFile}
-                onOpenDiff={onOpenDiff}
-            />
+            {checksAvailable ? (
+                <CommitInfoTabs idPrefix={tabsId} tab={tab} onChoose={chooseTab} />
+            ) : null}
+            {/* `contents` keeps the panels' rows as direct flex children of the pane. */}
+            <Box
+                display="contents"
+                {...(checksAvailable
+                    ? {
+                          role: "tabpanel",
+                          id: `${tabsId}-panel-${shownTab}`,
+                          "aria-labelledby": `${tabsId}-tab-${shownTab}`,
+                      }
+                    : {})}
+            >
+                {showChecks ? (
+                    <ChecksTab
+                        repoKey={ciRepoKey}
+                        hash={detail.hash}
+                        enabled={commitChecksEnabled}
+                    />
+                ) : (
+                    <CommitChangedFilesPanel
+                        repositoryRoot={repositoryRoot}
+                        detail={detail}
+                        tree={tree}
+                        expandedDirs={expandedDirs}
+                        selectedFilePath={selectedFilePath}
+                        filesCollapsed={filesCollapsed}
+                        groupByDir={groupByDir}
+                        folderIcon={folderIcon}
+                        folderExpandedIcon={folderExpandedIcon}
+                        folderIconsByName={folderIconsByName}
+                        onToggleFiles={toggleFilesCollapsed}
+                        onToggleGroupByDir={toggleGroupByDir}
+                        onToggleDir={toggleDir}
+                        onSelectFile={selectFile}
+                        onOpenDiff={onOpenDiff}
+                    />
+                )}
+            </Box>
             <CommitResizeDivider
-                visible={!filesCollapsed && !detailCollapsed}
+                visible={(showChecks || !filesCollapsed) && !detailCollapsed}
                 onMouseDown={onResizeStart}
             />
             <CommitDetailsPanel
                 detail={detail}
                 branchRefs={branchRefs}
                 tagRefs={tagRefs}
-                filesCollapsed={filesCollapsed}
+                filesCollapsed={!showChecks && filesCollapsed}
                 detailCollapsed={detailCollapsed}
                 bottomHeight={bottomHeight}
                 onToggleDetail={toggleDetailCollapsed}
             />
+        </Flex>
+    );
+}
+
+const TABS: readonly { id: CommitInfoTab; labelKey: string }[] = [
+    { id: "files", labelKey: "commitInfo.tab.files" },
+    { id: "checks", labelKey: "commitInfo.tab.checks" },
+];
+
+function CommitInfoTabs({
+    idPrefix,
+    tab,
+    onChoose,
+}: {
+    idPrefix: string;
+    tab: CommitInfoTab;
+    onChoose: (tab: CommitInfoTab) => void;
+}): React.ReactElement {
+    return (
+        <Flex
+            role="tablist"
+            aria-label={t("commitInfo.tabs")}
+            flexShrink={0}
+            gap="2px"
+            px="8px"
+            borderBottom={`1px solid ${JETBRAINS_UI.color.divider}`}
+        >
+            {TABS.map(({ id, labelKey }) => (
+                <Box
+                    as="button"
+                    key={id}
+                    role="tab"
+                    id={`${idPrefix}-tab-${id}`}
+                    aria-selected={tab === id}
+                    // Only the shown panel exists, so only the selected tab points at one.
+                    aria-controls={tab === id ? `${idPrefix}-panel-${id}` : undefined}
+                    onClick={() => onChoose(id)}
+                    px="10px"
+                    h="28px"
+                    fontSize="12px"
+                    fontFamily={SYSTEM_FONT_STACK}
+                    bg="transparent"
+                    border="none"
+                    cursor="pointer"
+                    color={tab === id ? JETBRAINS_UI.color.foreground : JETBRAINS_UI.color.muted}
+                    borderBottom={`2px solid ${tab === id ? JETBRAINS_UI.color.focus : "transparent"}`}
+                >
+                    {t(labelKey)}
+                </Box>
+            ))}
         </Flex>
     );
 }
@@ -350,10 +493,12 @@ function CommitChangedFilesPanel({
     expandedDirs,
     selectedFilePath,
     filesCollapsed,
+    groupByDir,
     folderIcon,
     folderExpandedIcon,
     folderIconsByName,
     onToggleFiles,
+    onToggleGroupByDir,
     onToggleDir,
     onSelectFile,
     onOpenDiff,
@@ -364,10 +509,12 @@ function CommitChangedFilesPanel({
     expandedDirs: Set<string>;
     selectedFilePath: string | null;
     filesCollapsed: boolean;
+    groupByDir: boolean;
     folderIcon?: ThemeTreeIcon;
     folderExpandedIcon?: ThemeTreeIcon;
     folderIconsByName?: ThemeFolderIconMap;
     onToggleFiles: () => void;
+    onToggleGroupByDir: () => void;
     onToggleDir: (path: string) => void;
     onSelectFile: (path: string) => void;
     onOpenDiff?: (commitHash: string, filePath: string) => void;
@@ -383,12 +530,22 @@ function CommitChangedFilesPanel({
                 onToggle={onToggleFiles}
                 stats={stats}
                 borderBottom={true}
+                action={
+                    <ToolbarIconButton
+                        label={groupByDir ? t("common.ungroupFiles") : t("common.groupByDirectory")}
+                        onClick={onToggleGroupByDir}
+                        pressed={groupByDir}
+                        color={TOOLBAR_ICON_ACCENTS.groupBy}
+                        icon={<VscListTree size={16} />}
+                    />
+                }
             />
             {!filesCollapsed && (
                 <Box flex="1 1 auto" overflowY="auto" minH="40px" py="4px">
                     <VirtualFileTreeRows
                         entries={tree}
                         depth={0}
+                        showParentPath={!groupByDir}
                         folderIcon={folderIcon}
                         folderExpandedIcon={folderExpandedIcon}
                         folderIconsByName={folderIconsByName}
