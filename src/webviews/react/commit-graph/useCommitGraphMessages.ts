@@ -10,34 +10,35 @@ import type { CommitGraphPanelAction } from "./types";
 import type { VsCodeApi } from "../shared/vscodeApi";
 
 /**
- * How the next full page load picks the selected commit.
+ * What triggered the next full page load, which decides the selected commit.
  *
- * - `keep`: a refresh keeps the selected hash even when the page no longer lists it (#246).
- * - `first`: scoping to a branch selects that branch's tip.
- * - `keepIfListed`: a new search result or the return to all branches keeps the selected hash
- *   when the page lists it, so the list stays on that commit; otherwise it selects the first row.
+ * - `refresh`: keeps the selected hash even when the page no longer lists it (#246).
+ * - `branchScoped`: selects the tip of the branch the graph is now scoped to.
+ * - `allBranches` and `searchResults`: keep the selected hash when the page lists it, so the list
+ *   stays on that commit; otherwise select the first row.
+ *
+ * A branch change clears the host's commit detail, so after `branchScoped` and `allBranches` the
+ * selection is posted again even when the hash is unchanged.
  */
-type NextLoadSelection = "keep" | "first" | "keepIfListed";
+type NextLoadTrigger = "refresh" | "branchScoped" | "allBranches" | "searchResults";
 
 function pickSelectedHash(
-    policy: NextLoadSelection,
+    trigger: NextLoadTrigger,
     previousSelectedHash: string | null,
     commits: readonly { hash: string }[],
 ): string | null {
     const firstCommitHash = commits[0]?.hash ?? null;
-    if (policy === "first") return firstCommitHash;
-    if (policy === "keepIfListed") {
-        const listed = commits.some((commit) => commit.hash === previousSelectedHash);
-        return listed ? previousSelectedHash : firstCommitHash;
-    }
-    return previousSelectedHash ?? firstCommitHash;
+    if (trigger === "branchScoped") return firstCommitHash;
+    if (trigger === "refresh") return previousSelectedHash ?? firstCommitHash;
+    const listed = commits.some((commit) => commit.hash === previousSelectedHash);
+    return listed ? previousSelectedHash : firstCommitHash;
 }
 
 /**
  * Subscribes to extension-host commit graph messages and dispatches panel state updates.
  *
  * `loadingMore` remains caller-owned because the root component also controls pagination requests.
- * Returns `keepSelectionIfListedOnNextLoad`, which the caller invokes when it requests new search
+ * Returns `expectSearchResults`, which the caller invokes when it requests new search
  * results, so the selection follows the results instead of a commit they no longer list.
  */
 export function useCommitGraphMessages(params: {
@@ -51,7 +52,7 @@ export function useCommitGraphMessages(params: {
     setViewVisible: (visible: boolean) => void;
     onShowRebaseDialog: (dialog: Extract<CommitGraphInbound, { type: "showRebaseDialog" }>) => void;
     onShowReviewPrompt: (requestId: string) => void;
-}): { keepSelectionIfListedOnNextLoad: () => void } {
+}): { expectSearchResults: () => void } {
     const {
         vscode,
         dispatch,
@@ -65,7 +66,7 @@ export function useCommitGraphMessages(params: {
     } = params;
     const selectedHashRef = useRef<string | null>(selectedHash);
     const ciRepoKeyRef = useRef(ciRepoKey);
-    const nextLoadSelectionRef = useRef<NextLoadSelection>("keep");
+    const nextLoadTriggerRef = useRef<NextLoadTrigger>("refresh");
     useLayoutEffect(() => {
         selectedHashRef.current = selectedHash;
         ciRepoKeyRef.current = ciRepoKey;
@@ -99,12 +100,13 @@ export function useCommitGraphMessages(params: {
                 case "loadCommits": {
                     loadingMore.current = false;
                     const previousSelectedHash = selectedHashRef.current;
-                    const policy = data.append ? null : nextLoadSelectionRef.current;
-                    const nextSelectedHash = policy
-                        ? pickSelectedHash(policy, previousSelectedHash, data.commits)
+                    const trigger = data.append ? null : nextLoadTriggerRef.current;
+                    const nextSelectedHash = trigger
+                        ? pickSelectedHash(trigger, previousSelectedHash, data.commits)
                         : previousSelectedHash;
+                    const branchChanged = trigger === "branchScoped" || trigger === "allBranches";
                     if (!data.append) {
-                        nextLoadSelectionRef.current = "keep";
+                        nextLoadTriggerRef.current = "refresh";
                     }
                     selectedHashRef.current = nextSelectedHash;
                     dispatch({
@@ -118,7 +120,7 @@ export function useCommitGraphMessages(params: {
                     if (
                         !data.append &&
                         nextSelectedHash !== null &&
-                        (policy === "first" || nextSelectedHash !== previousSelectedHash)
+                        (branchChanged || nextSelectedHash !== previousSelectedHash)
                     ) {
                         vscode.postMessage({
                             type: "selectCommit",
@@ -140,7 +142,7 @@ export function useCommitGraphMessages(params: {
                     });
                     break;
                 case "setSelectedBranch":
-                    nextLoadSelectionRef.current = data.branch ? "first" : "keepIfListed";
+                    nextLoadTriggerRef.current = data.branch ? "branchScoped" : "allBranches";
                     dispatch({ type: "setSelectedBranch", branch: data.branch ?? null });
                     break;
                 case "setFilterText":
@@ -185,7 +187,7 @@ export function useCommitGraphMessages(params: {
                     openChecksTab();
                     break;
                 case "loadError":
-                    nextLoadSelectionRef.current = "keep";
+                    nextLoadTriggerRef.current = "refresh";
                     dispatch({ type: "loadError", clearCommits: !loadingMore.current });
                     loadingMore.current = false;
                     console.error("[IntelliGit] Load error:", data.message);
@@ -202,8 +204,8 @@ export function useCommitGraphMessages(params: {
         // react-doctor-disable-next-line react-doctor/exhaustive-deps
     }, [sendReady, vscode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const keepSelectionIfListedOnNextLoad = useCallback(() => {
-        nextLoadSelectionRef.current = "keepIfListed";
+    const expectSearchResults = useCallback(() => {
+        nextLoadTriggerRef.current = "searchResults";
     }, []);
-    return { keepSelectionIfListedOnNextLoad };
+    return { expectSearchResults };
 }

@@ -4850,6 +4850,42 @@ describe("view providers integration", () => {
         provider.dispose();
     });
 
+    it("CommitGraphViewProvider sizes the branch-change page around the commit selected before the change", async () => {
+        const { CommitGraphViewProvider } =
+            await import("../../../src/views/CommitGraphViewProvider");
+        const gitOps = makeGitOpsMock();
+        const provider = new CommitGraphViewProvider(
+            { fsPath: "/ext", path: "/ext" } as unknown as { fsPath: string; path: string },
+            gitOps as unknown as object,
+            makeCredentialStore() as unknown as object,
+        );
+        const webview = createWebviewView();
+        provider.resolveWebviewView(
+            webview.view as unknown as object,
+            {} as unknown as object,
+            {} as unknown as object,
+        );
+        provider.onBranchFilterChanged(() => provider.clearCommitDetail({ loading: true }));
+        await webview.send({ type: "ready" });
+        provider.setCommitDetail({
+            hash: "abc1234",
+            shortHash: "abc1234",
+            message: "msg",
+            body: "",
+            author: "a",
+            email: "e",
+            date: "d",
+            parentHashes: [],
+            refs: [],
+            files: [],
+        });
+
+        await webview.send({ type: "filterBranch", branch: null });
+
+        expect(gitOps.firstPageCount.mock.calls.at(-1)?.[1]).toBe("abc1234");
+        provider.dispose();
+    });
+
     it("CommitGraphViewProvider sends initial and changed host visibility to the webview", async () => {
         const { CommitGraphViewProvider } =
             await import("../../../src/views/CommitGraphViewProvider");

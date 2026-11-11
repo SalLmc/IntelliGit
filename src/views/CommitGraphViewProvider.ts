@@ -367,7 +367,10 @@ export class CommitGraphViewProvider implements vscode.WebviewViewProvider, Revi
                     case "filterText":
                         await this.filterByText(this.assertString(msg.text, "text"));
                         break;
-                    case "filterBranch":
+                    case "filterBranch": {
+                        // Captured before the branch-filter listeners clear the commit detail, so
+                        // the first page still reaches the commit the webview keeps selected.
+                        const anchorHash = this.selectedCommitDetail?.hash;
                         this.currentBranch = this.assertNullableString(msg.branch, "branch");
                         this.commitCheckDemandSeq += 1;
                         this.filterText = "";
@@ -377,8 +380,9 @@ export class CommitGraphViewProvider implements vscode.WebviewViewProvider, Revi
                             branch: this.currentBranch,
                         });
                         this.postToWebview({ type: "setFilterText", text: "" });
-                        await this.loadInitial();
+                        await this.loadInitial(() => true, anchorHash);
                         break;
+                    }
                     case "branchAction":
                         if (!isBranchAction(this.assertString(msg.action, "action"))) {
                             throw new Error("Invalid branch action received from webview.");
@@ -670,9 +674,12 @@ export class CommitGraphViewProvider implements vscode.WebviewViewProvider, Revi
      * a checkout. Any other graph's filter is cleared when the cached branch list no longer
      * contains the selected branch. `requestSeq` coalesces overlapping filter, refresh, and
      * pagination operations so only the latest Git log response can update the offset or webview
-     * state.
+     * state. The first page is extended to include `anchorHash`, the selected commit by default.
      */
-    private async loadInitial(shouldContinue: () => boolean = () => true): Promise<void> {
+    private async loadInitial(
+        shouldContinue: () => boolean = () => true,
+        anchorHash: string | undefined = this.selectedCommitDetail?.hash,
+    ): Promise<void> {
         const requestId = ++this.requestSeq;
         this.offset = 0;
         this.loadingMore = false;
@@ -691,7 +698,7 @@ export class CommitGraphViewProvider implements vscode.WebviewViewProvider, Revi
             const filter = this.filterText || undefined;
             const initCount = await this.gitOps.firstPageCount(
                 this.PAGE_SIZE,
-                this.selectedCommitDetail?.hash,
+                anchorHash,
                 branch,
                 filter,
             );

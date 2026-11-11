@@ -269,16 +269,17 @@ describe("useCommitGraphMessages", () => {
         }
     });
 
-    it("keeps the branch tip selected when returning to all branches", async () => {
+    it("keeps the branch tip selected and reloads its detail when returning to all branches", async () => {
         const harness = await renderHarness("tip1");
         try {
             postFromHost({ type: "setSelectedBranch", branch: null });
             loadPage("newer", "tip1");
 
             expect(harness.lastLoadSelection()).toBe("tip1");
-            expect(harness.postMessage).not.toHaveBeenCalledWith(
-                expect.objectContaining({ type: "selectCommit" }),
-            );
+            expect(harness.postMessage).toHaveBeenCalledWith({
+                type: "selectCommit",
+                hash: "tip1",
+            });
         } finally {
             await harness.cleanup();
         }
@@ -303,11 +304,11 @@ describe("useCommitGraphMessages", () => {
     it("selects a search match and keeps it after the search is cleared", async () => {
         const harness = await renderHarness("aa11");
         try {
-            act(() => harness.hook().keepSelectionIfListedOnNextLoad());
+            act(() => harness.hook().expectSearchResults());
             loadPage("match");
             expect(harness.lastLoadSelection()).toBe("match");
 
-            act(() => harness.hook().keepSelectionIfListedOnNextLoad());
+            act(() => harness.hook().expectSearchResults());
             loadPage("aa11", "bb22", "match");
             expect(harness.lastLoadSelection()).toBe("match");
         } finally {
