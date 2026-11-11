@@ -145,6 +145,7 @@
     "commit.menu.newTag": "Nowy tag…",
     "commit.scope.branch": "Branch: {branch}",
     "commit.scope.allBranches": "Branch: wszystkie branche",
+    "commit.scope.showAllBranches": "Pokaż wszystkie branche",
     "commit.loadingMore": "Ładowanie kolejnych…",
     "commit.tooltip.branchesList": "Gałęzie: {refs}",
     "commit.tooltip.tagsList": "Tagi: {refs}",

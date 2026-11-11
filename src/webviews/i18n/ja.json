@@ -142,6 +142,7 @@
     "commit.menu.newTag": "新しいタグ…",
     "commit.scope.branch": "ブランチ: {branch}",
     "commit.scope.allBranches": "ブランチ: すべてのブランチ",
+    "commit.scope.showAllBranches": "すべてのブランチを表示",
     "commit.loadingMore": "さらに読み込み中…",
     "commit.tooltip.branchesList": "ブランチ: {refs}",
     "commit.tooltip.tagsList": "タグ: {refs}",

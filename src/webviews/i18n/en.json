@@ -211,6 +211,7 @@
     "commit.menu.newTag": "New Tag…",
     "commit.scope.branch": "Branch: {branch}",
     "commit.scope.allBranches": "Branch: All branches",
+    "commit.scope.showAllBranches": "Show all branches",
     "commit.loadingMore": "Loading more…",
     "commit.tooltip.branchesList": "Branches: {refs}",
     "commit.tooltip.tagsList": "Tags: {refs}",

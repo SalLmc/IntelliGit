@@ -43,7 +43,7 @@ describe("commit list branch scope", () => {
         const { root, container } = renderList("main", onShowAllBranches);
 
         const button = clearButton(container);
-        expect(button?.getAttribute("aria-label")).toBe("All branches");
+        expect(button?.getAttribute("aria-label")).toBe("Show all branches");
         act(() => {
             button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         });

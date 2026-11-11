@@ -142,6 +142,7 @@
     "commit.menu.newTag": "새로운 태그…",
     "commit.scope.branch": "브랜치: {branch}",
     "commit.scope.allBranches": "브랜치: 모든 브랜치",
+    "commit.scope.showAllBranches": "모든 브랜치 표시",
     "commit.loadingMore": "더 많은 내용을 불러오는 중…",
     "commit.tooltip.branchesList": "분기: {refs}",
     "commit.tooltip.tagsList": "태그: {refs}",

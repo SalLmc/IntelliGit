@@ -144,6 +144,7 @@
     "commit.menu.newTag": "Nova etiqueta…",
     "commit.scope.branch": "Branch: {branch}",
     "commit.scope.allBranches": "Branch: todos os branches",
+    "commit.scope.showAllBranches": "Mostrar todos os branches",
     "commit.loadingMore": "Carregando mais…",
     "commit.tooltip.branchesList": "Ramos: {refs}",
     "commit.tooltip.tagsList": "Etiquetas: {refs}",

@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchAction } from "../../../src/webviews/protocol/commitGraphTypes";
+import { FILTER_PUBLISH_DELAY_MS } from "../../../src/webviews/react/commit-graph/useDebouncedFilterPublish";
 import type {
     MultiRepositoryCommitPanelState,
     RepositoryCommitPanelState,
@@ -300,6 +301,9 @@ describe("app logic coverage", () => {
             document
                 .getElementById("compact-commit-action")
                 ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        });
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, FILTER_PUBLISH_DELAY_MS + 50));
         });
 
         expect(document.querySelector('[data-testid="compact-graph"]')).toBeTruthy();

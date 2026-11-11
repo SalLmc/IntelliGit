@@ -777,7 +777,7 @@ describe("CommitGraphApp integration", () => {
         );
 
         expect(vscode.postMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ type: "filterBranch", branch: null }),
+            expect.objectContaining({ type: "filterBranch", branch: "main" }),
         );
         expect(vscode.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({ type: "branchAction", action: "renameBranch" }),

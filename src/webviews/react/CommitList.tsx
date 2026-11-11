@@ -132,8 +132,8 @@ function BranchScope({
                 <button
                     type="button"
                     data-testid="commit-branch-scope-clear"
-                    aria-label={t("commit.scope.allBranches")}
-                    title={t("commit.scope.allBranches")}
+                    aria-label={t("commit.scope.showAllBranches")}
+                    title={t("commit.scope.showAllBranches")}
                     onClick={onShowAllBranches}
                     style={BRANCH_SCOPE_CLEAR_BUTTON_STYLE}
                 >

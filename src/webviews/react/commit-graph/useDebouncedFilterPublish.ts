@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
-const FILTER_PUBLISH_DELAY_MS = 200;
+export const FILTER_PUBLISH_DELAY_MS = 200;
 
 /**
  * Publishes commit-search text after typing pauses.

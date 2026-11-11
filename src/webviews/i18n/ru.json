@@ -145,6 +145,7 @@
     "commit.menu.newTag": "Новый тег…",
     "commit.scope.branch": "Ветка: {branch}",
     "commit.scope.allBranches": "Ветка: все ветки",
+    "commit.scope.showAllBranches": "Показать все ветки",
     "commit.loadingMore": "Загрузка дополнительных данных…",
     "commit.tooltip.branchesList": "Ветви: {refs}",
     "commit.tooltip.tagsList": "Теги: {refs}",

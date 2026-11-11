@@ -142,6 +142,7 @@
     "commit.menu.newTag": "新标签…",
     "commit.scope.branch": "分支：{branch}",
     "commit.scope.allBranches": "分支：所有分支",
+    "commit.scope.showAllBranches": "显示所有分支",
     "commit.loadingMore": "加载中……",
     "commit.tooltip.branchesList": "分支：{refs}",
     "commit.tooltip.tagsList": "标签：{refs}",
