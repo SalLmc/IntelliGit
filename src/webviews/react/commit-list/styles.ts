@@ -186,6 +186,13 @@ export const FILTER_CLEAR_BUTTON_STYLE: CSSProperties = {
     lineHeight: "14px",
 };
 
+export const BRANCH_SCOPE_CLEAR_BUTTON_STYLE: CSSProperties = {
+    ...FILTER_CLEAR_BUTTON_STYLE,
+    position: "static",
+    transform: "none",
+    flexShrink: 0,
+};
+
 export const BRANCH_SCOPE_STYLE: CSSProperties = {
     maxWidth: 300,
     overflow: "hidden",

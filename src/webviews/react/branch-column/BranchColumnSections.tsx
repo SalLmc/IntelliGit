@@ -91,10 +91,10 @@ export function BranchColumnSections({
                 <div style={HEAD_WRAPPER_STYLE}>
                     <button
                         type="button"
-                        className={`branch-row${selectedBranch === null ? " selected" : ""}`}
+                        className={`branch-row${selectedBranch === current.name ? " selected" : ""}`}
                         onClick={() => {
                             onClearSelectedBranches();
-                            onSelectBranch(null);
+                            onSelectBranch(current.name);
                         }}
                         onContextMenu={(event) => onBranchContextMenu(event, current)}
                         onKeyDown={(event) => {

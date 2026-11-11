@@ -26,6 +26,7 @@ import { JETBRAINS_UI } from "./shared/tokens";
 import { resolveLanePalette, useIsLightTheme } from "./shared/theme";
 import { t } from "./shared/i18n";
 import {
+    BRANCH_SCOPE_CLEAR_BUTTON_STYLE,
     BRANCH_SCOPE_STYLE,
     CHECKS_COL_WIDTH,
     FILTER_BAR_STYLE,
@@ -71,6 +72,8 @@ interface Props {
     currentBranchHeadHash?: string | null;
     onSelectCommit: (hash: string) => void;
     onFilterText: (text: string) => void;
+    /** Clears the branch scope; the clear control renders only while a branch is selected. */
+    onShowAllBranches?: () => void;
     onLoadMore: () => void | Promise<void>;
     onCommitAction: (action: CommitAction, hash: string) => void;
     onCommitHover?: (commit: Commit, event: React.MouseEvent) => void;
@@ -106,6 +109,38 @@ type CommitContextMenu = {
     commit: Commit;
     selectedHashes: ReadonlySet<string>;
 };
+
+/** Shows the graph's branch scope and, while scoped to a branch, a control back to all branches. */
+function BranchScope({
+    selectedBranch,
+    onShowAllBranches,
+}: {
+    selectedBranch: string | null;
+    onShowAllBranches?: () => void;
+}): React.ReactElement {
+    const label = selectedBranch
+        ? t("commit.scope.branch", { branch: selectedBranch })
+        : t("commit.scope.allBranches");
+    return (
+        <>
+            <span data-testid="commit-branch-scope" style={BRANCH_SCOPE_STYLE} title={label}>
+                {label}
+            </span>
+            {selectedBranch && onShowAllBranches ? (
+                <button
+                    type="button"
+                    data-testid="commit-branch-scope-clear"
+                    aria-label={t("commit.scope.allBranches")}
+                    title={t("commit.scope.allBranches")}
+                    onClick={onShowAllBranches}
+                    style={BRANCH_SCOPE_CLEAR_BUTTON_STYLE}
+                >
+                    <ClearIcon size={12} />
+                </button>
+            ) : null}
+        </>
+    );
+}
 
 /** Returns the selected displayed row nearest to a removed primary row. */
 function nearestSelectedHash(
@@ -174,6 +209,7 @@ export function CommitList({
     currentBranchHeadHash,
     onSelectCommit,
     onFilterText,
+    onShowAllBranches,
     onLoadMore,
     onCommitAction,
     onCommitHover,
@@ -650,9 +686,6 @@ export function CommitList({
         [onRequestCommitChecks, requestedCommitHashes],
     );
 
-    const branchScopeLabel = selectedBranch
-        ? t("commit.scope.branch", { branch: selectedBranch })
-        : t("commit.scope.allBranches");
     const canCherryPickFromSelectedScope = canCherryPickFromBranchScope(
         selectedBranch,
         currentBranchName,
@@ -687,13 +720,10 @@ export function CommitList({
                             </button>
                         )}
                     </div>
-                    <span
-                        data-testid="commit-branch-scope"
-                        style={BRANCH_SCOPE_STYLE}
-                        title={branchScopeLabel}
-                    >
-                        {branchScopeLabel}
-                    </span>
+                    <BranchScope
+                        selectedBranch={selectedBranch}
+                        onShowAllBranches={onShowAllBranches}
+                    />
                 </div>
             ) : null}
 

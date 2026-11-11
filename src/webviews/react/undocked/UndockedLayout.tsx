@@ -378,6 +378,7 @@ export function UndockedLayout(props: UndockedLayoutProps): React.ReactElement {
                                         currentBranchHeadHash={currentBranchHeadHash}
                                         onSelectCommit={handleSelectCommit}
                                         onFilterText={handleFilterText}
+                                        onShowAllBranches={() => handleSelectBranch(null)}
                                         onLoadMore={handleLoadMore}
                                         onCommitAction={handleCommitAction}
                                         commitChecks={commitChecks}
